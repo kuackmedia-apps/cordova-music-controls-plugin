@@ -43,9 +43,6 @@ public class MusicControlsNotificationKiller extends Service {
     }
 
     public void setForeground(Notification notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-           // createNotificationChannel();
-        }
 
         try {
             Log.v("MusicControlsService", "Poniendo en primer plano el servicio " + notification.toString());
@@ -77,20 +74,6 @@ public class MusicControlsNotificationKiller extends Service {
         mNM = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (mNM != null) {
             mNM.cancel(NOTIFICATION_ID);
-        }
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Music Controls Service Channel",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            mNM = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (mNM != null) {
-                mNM.createNotificationChannel(serviceChannel);
-            }
         }
     }
 }
