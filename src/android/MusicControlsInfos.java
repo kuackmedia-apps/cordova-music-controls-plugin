@@ -22,6 +22,7 @@ public class MusicControlsInfos{
 	public String closeIcon;
 	public String notificationIcon;
 	public Long duration;
+	public boolean isCasting;
 
 	public MusicControlsInfos(JSONArray args) throws JSONException {
 		final JSONObject params = args.getJSONObject(0);
@@ -29,7 +30,7 @@ public class MusicControlsInfos{
 		Log.i("MusicControlsInfos hasNext",  params.getString("hasNext"));
 		this.track = params.getString("track");
 		this.artist = params.getString("artist");
-    		this.album = params.getString("album");
+    	this.album = params.getString("album");
 		this.ticker = params.getString("ticker");
 		this.cover = params.getString("cover");
 		this.isPlaying = params.getBoolean("isPlaying");
@@ -44,6 +45,7 @@ public class MusicControlsInfos{
 		this.closeIcon = params.getString("closeIcon");
 		this.notificationIcon = params.getString("notificationIcon");
 		this.duration = params.getLong("duration");
+		this.isCasting = params.getBoolean("isCasting");
 	}
 
 }

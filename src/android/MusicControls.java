@@ -1,5 +1,5 @@
 package com.homerours.musiccontrols;
-
+import androidx.media.VolumeProviderCompat;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
@@ -23,13 +23,7 @@ import android.content.Context;
 import android.content.IntentFilter;
 import android.content.Intent;
 import android.app.PendingIntent;
-import android.content.ServiceConnection;
-import android.content.ComponentName;
-import android.app.Service;
-import android.os.IBinder;
-import android.os.Bundle;
 import android.os.Build;
-import android.R;
 import android.content.BroadcastReceiver;
 import android.media.AudioManager;
 
@@ -46,6 +40,7 @@ import java.util.List;
 
 import android.view.View;
 import android.os.PowerManager;
+
 import static android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS;
 
 public class MusicControls extends CordovaPlugin {
@@ -58,10 +53,13 @@ public class MusicControls extends CordovaPlugin {
 	private boolean mediaButtonAccess=true;
 
   	private Activity cordovaActivity;
+	private MusicControls self = this;
 
 	private MediaSessionCallback mMediaSessionCallback = new MediaSessionCallback();
 
 	private MusicControlsServiceConnection mConnection;
+	private CallbackContext volumeCallbackContext;
+	private VolumeProviderCompat volumeProvider;
 
 	private void registerBroadcaster(MusicControlsBroadcastReceiver mMessageReceiver){
 		final Context context = this.cordova.getActivity().getApplicationContext();
@@ -126,13 +124,54 @@ public class MusicControls extends CordovaPlugin {
 		this.mMessageReceiver = new MusicControlsBroadcastReceiver();
 		this.mMessageReceiver.setMusicControls(this);
 		IntentFilter filter = new IntentFilter();
-        filter.addAction("com.homerours.musiccontrols.MUSIC_CONTROL_ACTION");
+		filter.addAction("com.homerours.musiccontrols.MUSIC_CONTROL_ACTION");
 		this.registerBroadcaster(mMessageReceiver);
 
 
 		this.mediaSessionCompat = new MediaSessionCompat(context, "cordova-music-controls-media-session", null, this.mediaButtonPendingIntent);
 		this.mediaSessionCompat.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
 
+		/*
+		VOLUMEN CONTROL
+		 */
+
+		// En el método onAdjustVolume de VolumeProviderCompat:
+		this.volumeProvider = new VolumeProviderCompat(
+				VolumeProviderCompat.VOLUME_CONTROL_RELATIVE,  // Tipo de control
+				100,                                           // Volumen máximo
+				50                                             // Volumen inicial
+		) {
+			@Override
+			public void onAdjustVolume(int direction) {
+				Log.v("VolumeProviderCompat", "Ajustar volumen: " + direction);
+
+				// Si se ha asignado el CallbackContext, enviar el evento
+				if (volumeCallbackContext != null) {
+					// Puedes enviar un objeto JSON o simplemente la dirección, según tus necesidades
+					JSONObject data = new JSONObject();
+
+					try {
+						data.put("message","volume");
+						data.put("direction", direction);
+					} catch (JSONException e) {
+						e.printStackTrace();
+					}
+					PluginResult result = new PluginResult(PluginResult.Status.OK, data.toString());
+					// Mantiene el callback activo para futuros eventos
+					result.setKeepCallback(true);
+					volumeCallbackContext.sendPluginResult(result);
+				}
+			}
+
+			@Override
+			public void onSetVolumeTo(int volume) {
+				// Implementación si usas control absoluto
+			}
+		};
+
+		//mediaSessionCompat.setPlaybackToRemote(volumeProvider);
+		//mediaSessionCompat.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+		//this.mediaSessionCompat.setPlaybackToRemote(this.mConnection.getRemoteVolumeProvider());
 	//	this.notification.setSessionToken(this.mediaSessionCompat.getSessionToken());
 		Log.v("MediaControllerSession", "this.mediaSessionCompat " + this.mediaSessionCompat.getSessionToken().toString());
 		this.notification.setMediaSessionCompat(mediaSessionCompat);
@@ -193,6 +232,11 @@ public class MusicControls extends CordovaPlugin {
 					}
 
 					mediaSessionCompat.setMetadata(metadataBuilder.build());
+					if (infos.isCasting) {
+						mediaSessionCompat.setPlaybackToRemote(self.volumeProvider);
+					} else {
+						mediaSessionCompat.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+					}
 
 					if(infos.isPlaying)
 						setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING);
@@ -231,8 +275,9 @@ public class MusicControls extends CordovaPlugin {
 			this.registerMediaButtonEvent();
       			this.cordova.getThreadPool().execute(new Runnable() {
 				public void run() {
-          				mMediaSessionCallback.setCallback(callbackContext);
+          			mMediaSessionCallback.setCallback(callbackContext);
 					mMessageReceiver.setCallback(callbackContext);
+					volumeCallbackContext = callbackContext;
 				}
 			});
 		}
