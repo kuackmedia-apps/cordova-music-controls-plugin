@@ -17,13 +17,32 @@ MusicControlsInfo * musicControlsSettings;
 @implementation MusicControls
 
 - (void)create:(CDVInvokedUrlCommand *)command {
+    NSLog(@"🚩 MusicControls.create iniciado.");
+
+    NSLog(@"🚩 MusicControls.create iniciado.");
+
+        NSError *audioSessionError = nil;
+        AVAudioSession *session = [AVAudioSession sharedInstance];
+        [session setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
+        [session setActive:YES error:&audioSessionError];
+
+        if (audioSessionError) {
+            NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
+        } else {
+            NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
+        }
+
+
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
     musicControlsSettings = musicControlsInfo;
 
     if (!NSClassFromString(@"MPNowPlayingInfoCenter")) {
+        NSLog(@"⚠️ MPNowPlayingInfoCenter no está disponible.");
         return;
     }
+
+    NSLog(@"ℹ️ Iniciando carga asincrónica del artwork con URL: %@", [musicControlsInfo cover]);
 
     [self.commandDelegate runInBackground:^{
         [self setCoverArtworkAsync:[musicControlsInfo cover] completion:^(MPMediaItemArtwork *artwork) {
@@ -31,8 +50,15 @@ MusicControlsInfo * musicControlsSettings;
             NSMutableDictionary *updatedNowPlayingInfo = [NSMutableDictionary dictionary];
 
             if (artwork != nil) {
+                NSLog(@"✅ Artwork cargado correctamente.");
                 updatedNowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
+            } else {
+                NSLog(@"❌ Artwork no pudo ser cargado (nil).");
             }
+
+            NSLog(@"🎵 Artist: %@", [musicControlsInfo artist]);
+            NSLog(@"🎵 Track: %@", [musicControlsInfo track]);
+            NSLog(@"🎵 Album: %@", [musicControlsInfo album]);
 
             updatedNowPlayingInfo[MPMediaItemPropertyArtist] = [musicControlsInfo artist];
             updatedNowPlayingInfo[MPMediaItemPropertyTitle] = [musicControlsInfo track];
@@ -43,12 +69,14 @@ MusicControlsInfo * musicControlsSettings;
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
+                NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito: %@", updatedNowPlayingInfo);
             });
         }];
     }];
 
     [self registerMusicControlsEventListener];
 }
+
 
 
 - (void) updateIsPlaying: (CDVInvokedUrlCommand *) command {
