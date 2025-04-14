@@ -35,6 +35,8 @@
 - (void) handleMusicControlsNotification:(NSNotification *) notification;
 - (void) registerMusicControlsEventListener;
 - (void) deregisterMusicControlsEventListener;
+- (void)setCoverArtworkAsync:(NSString *)coverUri completion:(void (^)(MPMediaItemArtwork *))completion;
+
 
 @end
 
