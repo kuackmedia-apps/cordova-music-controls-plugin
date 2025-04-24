@@ -1,43 +1,56 @@
 //
-// MusicControls.h
-// Music Controls Cordova Plugin
+//  MusicControls.h
 //
-// Created by Juan Gonzalez on 12/16/16.
-// Updated by Eugene Cross on 14/12/19 for iOS 13 compatibility
+//  Created by Juan Gonzalez on 12/16/16.
+//  Updated for AirPlay compatibility in iOS 14+ [2025]
 //
-
-#ifndef MusicControls_h
-#define MusicControls_h
 
 #import <Cordova/CDVPlugin.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <MediaPlayer/MPNowPlayingInfoCenter.h>
 #import <MediaPlayer/MPMediaItem.h>
+#import <AVFoundation/AVFoundation.h>
 
-@interface MusicControls : CDVPlugin {}
+@interface MusicControls : CDVPlugin {
+    NSString * latestEventCallbackId;
+}
 
-@property NSString * latestEventCallbackId;
+@property (nonatomic, copy) NSString *latestEventCallbackId;
+@property (nonatomic, strong) AVAudioSession *avSession;
 
-- (void) create: (CDVInvokedUrlCommand *) command;
-- (void) updateIsPlaying: (CDVInvokedUrlCommand *) command;
-- (void) updateElapsed: (CDVInvokedUrlCommand *) command;
-- (void) destroy: (CDVInvokedUrlCommand *) command;
-- (void) watch: (CDVInvokedUrlCommand *) command;
-- (MPRemoteCommandHandlerStatus) remoteEvent:(MPRemoteCommandEvent *) event;
-- (MPRemoteCommandHandlerStatus) playEvent:(MPRemoteCommandEvent *) event;
-- (MPRemoteCommandHandlerStatus) pauseEvent:(MPRemoteCommandEvent *) event;
-- (MPRemoteCommandHandlerStatus) nextTrackEvent:(MPRemoteCommandEvent *) event;
-- (MPRemoteCommandHandlerStatus) prevTrackEvent:(MPRemoteCommandEvent *) event;
-- (void) skipForwardEvent: (MPSkipIntervalCommandEvent *) event;
-- (void) skipBackwardEvent: (MPSkipIntervalCommandEvent *) event;
-- (MPMediaItemArtwork *) createCoverArtwork: (NSString *) coverUri;
-- (bool) isCoverImageValid: (UIImage *) image;
-- (void) handleMusicControlsNotification:(NSNotification *) notification;
-- (void) registerMusicControlsEventListener;
-- (void) deregisterMusicControlsEventListener;
-- (void)setCoverArtworkAsync:(NSString *)coverUri completion:(void (^)(MPMediaItemArtwork *))completion;
+// Métodos básicos de Cordova Plugin
+- (void)create:(CDVInvokedUrlCommand*)command;
+- (void)updateIsPlaying:(CDVInvokedUrlCommand*)command;
+- (void)updateElapsed:(CDVInvokedUrlCommand*)command;
+- (void)destroy:(CDVInvokedUrlCommand*)command;
+- (void)watch:(CDVInvokedUrlCommand*)command;
 
+// Métodos para artworks y media info
+- (MPMediaItemArtwork*)createCoverArtwork:(NSString*)coverUri;
+- (void)setCoverArtworkAsync:(NSString*)coverUri completion:(void (^)(MPMediaItemArtwork *))completion;
+- (void)forceNowPlayingInfoRefresh;
+
+// Gestión de eventos
+- (void)registerMusicControlsEventListener;
+- (void)deregisterMusicControlsEventListener;
+
+// Soporte AirPlay específico
+- (void)registerAirPlayObservers;
+- (void)handleAudioRouteChange:(NSNotification *)notification;
+- (void)refreshNowPlayingInfoForAirPlay;
+- (void)handleAVPlayerExternalPlaybackActive:(NSNotification *)notification;
+- (void)handleAVPlayerItemDidPlayToEndTime:(NSNotification *)notification;
+- (void)handleAVPlayerItemFailedToPlayToEndTime:(NSNotification *)notification;
+
+// Manejadores de eventos de comandos remotos
+- (MPRemoteCommandHandlerStatus)togglePlayPauseEvent:(MPRemoteCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)nextTrackEvent:(MPRemoteCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)prevTrackEvent:(MPRemoteCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)pauseEvent:(MPRemoteCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)playEvent:(MPRemoteCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)skipForwardEvent:(MPSkipIntervalCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)skipBackwardEvent:(MPSkipIntervalCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)changedThumbSliderOnLockScreen:(MPChangePlaybackPositionCommandEvent *)event;
+- (MPRemoteCommandHandlerStatus)remoteEvent:(MPRemoteCommandEvent *)event;
 
 @end
-
-#endif /* MusicControls_h */

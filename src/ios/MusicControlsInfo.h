@@ -1,8 +1,7 @@
 //
 //  MusicControlsInfo.h
 //
-//
-//  Created by Juan Gonzalez on 12/17/16.
+//  Created by Juan Gonzalez on 12/16/16.
 //
 //
 
@@ -13,22 +12,22 @@
 
 @interface MusicControlsInfo : NSObject {}
 
-@property NSString * artist;
-@property NSString * track;
-@property NSString * album;
-@property NSString * ticker;
-@property NSString * cover;
-@property NSUInteger duration;
-@property NSUInteger elapsed;
-@property bool isPlaying;
-@property bool hasPrev;
-@property bool hasNext;
-@property bool hasSkipForward;
-@property bool hasSkipBackward;
-@property bool hasScrubbing;
-@property NSUInteger skipForwardInterval;
-@property NSUInteger skipBackwardInterval;
-@property bool dismissable;
+@property (nonatomic, copy) NSString * artist;
+@property (nonatomic, copy) NSString * track;
+@property (nonatomic, copy) NSString * album;
+@property (nonatomic, copy) NSString * ticker;
+@property (nonatomic, copy) NSString * cover;
+@property (nonatomic, assign) int duration;
+@property (nonatomic, assign) int elapsed;
+@property (nonatomic, assign) BOOL isPlaying;
+@property (nonatomic, assign) BOOL hasPrev;
+@property (nonatomic, assign) BOOL hasNext;
+@property (nonatomic, assign) BOOL hasSkipForward;
+@property (nonatomic, assign) BOOL hasSkipBackward;
+@property (nonatomic, assign) BOOL hasScrubbing;
+@property (nonatomic, assign) int skipForwardInterval;
+@property (nonatomic, assign) int skipBackwardInterval;
+@property (nonatomic, copy) NSString * dismissable;
 
 - (id) initWithDictionary: (NSDictionary *) dictionary;
 

@@ -5,7 +5,7 @@
 //  Created by Juan Gonzalez on 12/16/16.
 //  Updated by Gaven Henry on 11/7/17 for iOS 11 compatibility & new features
 //  Updated by Eugene Cross on 14/10/19 for iOS 13 compatibility
-//
+//  Updated for AirPlay compatibility in iOS 14+ [2025]
 //
 
 #import "MusicControls.h"
@@ -13,25 +13,35 @@
 
 //save the passed in info globally so we can configure the enabled/disabled commands and skip intervals
 MusicControlsInfo * musicControlsSettings;
+AVPlayer * avPlayer;
 
 @implementation MusicControls
 
 - (void)create:(CDVInvokedUrlCommand *)command {
     NSLog(@"🚩 MusicControls.create iniciado.");
 
-    NSLog(@"🚩 MusicControls.create iniciado.");
+    // Configuración específica para AirPlay
+    NSError *audioSessionError = nil;
+    self.avSession = [AVAudioSession sharedInstance];
 
-        NSError *audioSessionError = nil;
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
-        [session setActive:YES error:&audioSessionError];
+    // En iOS 14+, usar opciones de categoría específicas para AirPlay
+    if (@available(iOS 14.0, *)) {
+        [self.avSession setCategory:AVAudioSessionCategoryPlayback
+                         withOptions:AVAudioSessionCategoryOptionAllowAirPlay | AVAudioSessionCategoryOptionDefaultToSpeaker
+                               error:&audioSessionError];
+    } else {
+        [self.avSession setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
+    }
 
-        if (audioSessionError) {
-            NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
-        } else {
-            NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
-        }
+    // Establecer modo de audio optimizado para música
+    [self.avSession setMode:AVAudioSessionModeDefault error:&audioSessionError];
+    [self.avSession setActive:YES error:&audioSessionError];
 
+    if (audioSessionError) {
+        NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
+    } else {
+        NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
+    }
 
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
@@ -67,9 +77,33 @@ MusicControlsInfo * musicControlsSettings;
             updatedNowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(musicControlsInfo.elapsed);
             updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(musicControlsInfo.isPlaying);
 
+            // Adición específica para iOS 14+ y AirPlay
+            if (@available(iOS 14.0, *)) {
+                // Estas propiedades ayudan a AirPlay a manejar mejor los metadatos
+                updatedNowPlayingInfo[MPNowPlayingInfoPropertyIsLiveStream] = @(NO);
+                updatedNowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = @(MPNowPlayingInfoMediaTypeAudio);
+                updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = @(0);
+                updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = @(1);
+                updatedNowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = @(1.0);
+
+                // Esta propiedad es crucial para identificación externa
+                NSString *uniqueIdentifier = [NSString stringWithFormat:@"%@-%@-%@",
+                                             [musicControlsInfo artist],
+                                             [musicControlsInfo track],
+                                             [musicControlsInfo album]];
+
+                // Usar un identificador único pero estable para AirPlay
+                NSUInteger hashValue = [uniqueIdentifier hash];
+                NSNumber *persistentID = [NSNumber numberWithUnsignedLongLong:(uint64_t)hashValue];
+                updatedNowPlayingInfo[MPMediaItemPropertyPersistentID] = persistentID;
+            }
+
             dispatch_async(dispatch_get_main_queue(), ^{
                 nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
                 NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito: %@", updatedNowPlayingInfo);
+
+                // Forzar una actualización para AirPlay
+                [self forceNowPlayingInfoRefresh];
             });
         }];
     }];
@@ -77,7 +111,26 @@ MusicControlsInfo * musicControlsSettings;
     [self registerMusicControlsEventListener];
 }
 
+// Método para forzar la actualización de NowPlayingInfo (especialmente para AirPlay)
+- (void)forceNowPlayingInfoRefresh {
+    // Forzar la actualización puede ayudar a AirPlay a reconocer los cambios
+    if (@available(iOS 14.0, *)) {
+        // Pequeño cambio en el volumen para forzar una actualización
+        MPNowPlayingInfoCenter *center = [MPNowPlayingInfoCenter defaultCenter];
+        NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionaryWithDictionary:center.nowPlayingInfo];
+        float currentRate = [[nowPlayingInfo objectForKey:MPNowPlayingInfoPropertyPlaybackRate] floatValue];
 
+        // Cambiar brevemente la tasa de reproducción y luego restaurarla
+        [nowPlayingInfo setObject:@(currentRate + 0.01) forKey:MPNowPlayingInfoPropertyPlaybackRate];
+        center.nowPlayingInfo = nowPlayingInfo;
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            NSMutableDictionary *updatedInfo = [NSMutableDictionary dictionaryWithDictionary:center.nowPlayingInfo];
+            [updatedInfo setObject:@(currentRate) forKey:MPNowPlayingInfoPropertyPlaybackRate];
+            center.nowPlayingInfo = updatedInfo;
+        });
+    }
+}
 
 - (void) updateIsPlaying: (CDVInvokedUrlCommand *) command {
     NSDictionary * musicControlsInfoDict = [command.arguments objectAtIndex:0];
@@ -95,6 +148,11 @@ MusicControlsInfo * musicControlsSettings;
     [updatedNowPlayingInfo setObject:elapsed forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
     [updatedNowPlayingInfo setObject:playbackRate forKey:MPNowPlayingInfoPropertyPlaybackRate];
     nowPlayingCenter.nowPlayingInfo = updatedNowPlayingInfo;
+
+    // En iOS 14+, asegurarnos de que AirPlay reciba la actualización
+    if (@available(iOS 14.0, *)) {
+        [self forceNowPlayingInfoRefresh];
+    }
 }
 
 // this was performing the full function of updateIsPlaying and just adding elapsed time update as well
@@ -207,8 +265,14 @@ MusicControlsInfo * musicControlsSettings;
     NSString * jsonAction = [NSString stringWithFormat:@"{\"message\":\"%@\"}", action];
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
-    return MPRemoteCommandHandlerStatusSuccess;
 
+    // Si el evento viene de AirPlay, registrarlo específicamente
+    if ([event.command isKindOfClass:[MPRemoteCommand class]] &&
+        [NSStringFromClass([event.command class]) containsString:@"Extern"]) {
+        NSLog(@"🔊 Pausa recibida desde AirPlay");
+    }
+
+    return MPRemoteCommandHandlerStatusSuccess;
 }
 
 - (MPRemoteCommandHandlerStatus) playEvent:(MPRemoteCommandEvent *)event {
@@ -216,8 +280,14 @@ MusicControlsInfo * musicControlsSettings;
     NSString * jsonAction = [NSString stringWithFormat:@"{\"message\":\"%@\"}", action];
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
-    return MPRemoteCommandHandlerStatusSuccess;
 
+    // Si el evento viene de AirPlay, registrarlo específicamente
+    if ([event.command isKindOfClass:[MPRemoteCommand class]] &&
+        [NSStringFromClass([event.command class]) containsString:@"Extern"]) {
+        NSLog(@"🔊 Play recibido desde AirPlay");
+    }
+
+    return MPRemoteCommandHandlerStatusSuccess;
 }
 
 //Handle all other remote control events
@@ -271,14 +341,164 @@ MusicControlsInfo * musicControlsSettings;
     }
 }
 
+// MÉTODOS PARA SOPORTE DE AIRPLAY
+
+// Registrar observadores específicos para AirPlay
+- (void)registerAirPlayObservers {
+    // Observar cambios en la ruta de audio (cuando se conecta/desconecta AirPlay)
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleAudioRouteChange:)
+                                                 name:AVAudioSessionRouteChangeNotification
+                                               object:nil];
+
+    // Observar el estado de reproducción externa específicamente para AirPlay
+    if (@available(iOS 14.0, *)) {
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                selector:@selector(handleAVPlayerItemDidPlayToEndTime:)
+                                                    name:AVPlayerItemDidPlayToEndTimeNotification
+                                                  object:nil];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                selector:@selector(handleAVPlayerItemFailedToPlayToEndTime:)
+                                                    name:AVPlayerItemFailedToPlayToEndTimeNotification
+                                                  object:nil];
+
+        // Específico para cambios en la reproducción externa
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                selector:@selector(handleAVPlayerExternalPlaybackActive:)
+                                                    name:@"AVPlayerExternalPlaybackActiveDidChangeNotification"
+                                                  object:nil];
+    }
+
+    NSLog(@"✅ Observadores AirPlay registrados correctamente");
+}
+
+// Maneja los cambios en la ruta de audio (cuando cambia a/desde AirPlay)
+- (void)handleAudioRouteChange:(NSNotification *)notification {
+    NSNumber *reasonValue = [notification.userInfo objectForKey:AVAudioSessionRouteChangeReasonKey];
+    AVAudioSessionRouteChangeReason reason = [reasonValue unsignedIntegerValue];
+
+    NSLog(@"🔄 Cambio detectado en la ruta de audio, razón: %lu", (unsigned long)reason);
+
+    // Detectar cuando se conecta a AirPlay u otro dispositivo externo
+    if (reason == AVAudioSessionRouteChangeReasonNewDeviceAvailable ||
+        reason == AVAudioSessionRouteChangeReasonCategoryChange ||
+        reason == AVAudioSessionRouteChangeReasonOverride) {
+
+        // Registrar nueva ruta
+        AVAudioSessionRouteDescription *currentRoute = [[AVAudioSession sharedInstance] currentRoute];
+        for (AVAudioSessionPortDescription *output in [currentRoute outputs]) {
+            NSLog(@"🎧 Dispositivo de salida activo: %@ (Tipo: %@)", [output portName], [output portType]);
+
+            if ([[output portType] isEqualToString:AVAudioSessionPortAirPlay]) {
+                NSLog(@"🎧 Ruta de audio cambiada a AirPlay, actualizando información de reproducción");
+
+                // Actualizar todo en un hilo separado
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    // Iniciar con un pequeño retraso para asegurar que AirPlay esté listo
+                    [NSThread sleepForTimeInterval:0.5];
+
+                    // Forzar actualización de la información de reproducción para AirPlay
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self refreshNowPlayingInfoForAirPlay];
+                        [self forceNowPlayingInfoRefresh];
+                    });
+                });
+            }
+        }
+    }
+}
+
+// Actualiza la información de reproducción específicamente para AirPlay
+- (void)refreshNowPlayingInfoForAirPlay {
+    if (musicControlsSettings) {
+        MPNowPlayingInfoCenter *center = [MPNowPlayingInfoCenter defaultCenter];
+        if (!center.nowPlayingInfo) return;
+
+        NSMutableDictionary *updatedInfo = [NSMutableDictionary dictionaryWithDictionary:center.nowPlayingInfo];
+
+        // Cargar artwork nuevamente
+        [self.commandDelegate runInBackground:^{
+            [self setCoverArtworkAsync:[musicControlsSettings cover] completion:^(MPMediaItemArtwork *artwork) {
+                if (artwork) {
+                    updatedInfo[MPMediaItemPropertyArtwork] = artwork;
+                }
+
+                // Asegurar que todos los metadatos estén presentes
+                updatedInfo[MPMediaItemPropertyArtist] = [musicControlsSettings artist];
+                updatedInfo[MPMediaItemPropertyTitle] = [musicControlsSettings track];
+                updatedInfo[MPMediaItemPropertyAlbumTitle] = [musicControlsSettings album];
+
+                // Metadatos específicos para iOS 14+ y AirPlay
+                if (@available(iOS 14.0, *)) {
+                    updatedInfo[MPNowPlayingInfoPropertyIsLiveStream] = @(NO);
+                    updatedInfo[MPNowPlayingInfoPropertyMediaType] = @(MPNowPlayingInfoMediaTypeAudio);
+
+                    // Esta propiedad es crucial para la identificación en AirPlay
+                    NSString *uniqueIdentifier = [NSString stringWithFormat:@"%@-%@-%@",
+                                                [musicControlsSettings artist],
+                                                [musicControlsSettings track],
+                                                [musicControlsSettings album]];
+
+                    // Usar un identificador único pero estable para AirPlay
+                    NSUInteger hashValue = [uniqueIdentifier hash];
+                    NSNumber *persistentID = [NSNumber numberWithUnsignedLongLong:(uint64_t)hashValue];
+                    updatedInfo[MPMediaItemPropertyPersistentID] = persistentID;
+                }
+
+                // Actualizar la información en el hilo principal
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    center.nowPlayingInfo = updatedInfo;
+                    NSLog(@"✅ NowPlayingInfo actualizado específicamente para AirPlay");
+                });
+            }];
+        }];
+    }
+}
+
+// Manejar cambios en el estado de reproducción externa (AirPlay)
+- (void)handleAVPlayerExternalPlaybackActive:(NSNotification *)notification {
+    AVPlayer *player = notification.object;
+
+    if (player.isExternalPlaybackActive) {
+        NSLog(@"📱➡️🔊 Reproducción externa (AirPlay) está ahora activa");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self refreshNowPlayingInfoForAirPlay];
+        });
+    } else {
+        NSLog(@"🔊➡️📱 Reproducción externa (AirPlay) está ahora inactiva");
+    }
+}
+
+// Manejar notificaciones específicas de AVPlayer
+- (void)handleAVPlayerItemDidPlayToEndTime:(NSNotification *)notification {
+    NSLog(@"🎵 AVPlayerItem terminó la reproducción");
+}
+
+- (void)handleAVPlayerItemFailedToPlayToEndTime:(NSNotification *)notification {
+    NSError *error = [[notification userInfo] objectForKey:AVPlayerItemFailedToPlayToEndTimeErrorKey];
+    NSLog(@"❌ Error en reproducción de AVPlayerItem: %@", [error localizedDescription]);
+}
+
 //There are only 3 button slots available so next/prev track and skip forward/back cannot both be enabled
 //skip forward/back will take precedence if both are enabled
 - (void) registerMusicControlsEventListener {
     [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleMusicControlsNotification:) name:@"musicControlsEventNotification" object:nil];
 
+    // Registrar observadores específicos para AirPlay
+    [self registerAirPlayObservers];
+
     //register required event handlers for standard controls
     MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+
+    // Configuración específica para AirPlay en iOS 14+
+    if (@available(iOS 14.0, *)) {
+        // Habilitar comandos específicos para mejorar interoperabilidad con AirPlay
+        commandCenter.togglePlayPauseCommand.enabled = YES;
+        [commandCenter.togglePlayPauseCommand addTarget:self action:@selector(togglePlayPauseEvent:)];
+    }
+
     [commandCenter.playCommand setEnabled:true];
     [commandCenter.playCommand addTarget:self action:@selector(playEvent:)];
     [commandCenter.pauseCommand setEnabled:true];
@@ -322,81 +542,157 @@ MusicControlsInfo * musicControlsSettings;
             }
         }
     }
+
+    // Agregar manejador para togglePlayPause en iOS 14+
+    if (@available(iOS 14.0, *)) {
+        [commandCenter.togglePlayPauseCommand setEnabled:true];
+        [commandCenter.togglePlayPauseCommand addTarget:self action:@selector(togglePlayPauseEvent:)];
+    }
+}
+
+// Manejar el evento de togglePlayPause específicamente para iOS 14+
+- (MPRemoteCommandHandlerStatus)togglePlayPauseEvent:(MPRemoteCommandEvent *)event {
+    NSString *action = @"music-controls-toggle-play-pause";
+    NSString *jsonAction = [NSString stringWithFormat:@"{\"message\":\"%@\"}", action];
+    CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
+
+    NSLog(@"🔄 Evento toggle play/pause recibido (posiblemente desde AirPlay)");
+    return MPRemoteCommandHandlerStatusSuccess;
 }
 
 - (void) deregisterMusicControlsEventListener {
     [[UIApplication sharedApplication] endReceivingRemoteControlEvents];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:@"receivedEvent" object:nil];
 
-    MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
-    [commandCenter.nextTrackCommand removeTarget:self];
-    [commandCenter.previousTrackCommand removeTarget:self];
+    // Eliminar todos los observadores de AirPlay y reproducción externa
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionRouteChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"AVPlayerExternalPlaybackActiveDidChangeNotification" object:nil];
 
-    if (floor(NSFoundationVersionNumber) > NSFoundationVersionNumber_iOS_9_0) {
-        [commandCenter.changePlaybackPositionCommand setEnabled:false];
-        [commandCenter.changePlaybackPositionCommand removeTarget:self action:NULL];
-        [commandCenter.skipForwardCommand removeTarget:self];
-        [commandCenter.skipBackwardCommand removeTarget:self];
+        MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+        [commandCenter.nextTrackCommand removeTarget:self];
+        [commandCenter.previousTrackCommand removeTarget:self];
+        [commandCenter.togglePlayPauseCommand removeTarget:self];
+
+        if (floor(NSFoundationVersionNumber) > NSFoundationVersionNumber_iOS_9_0) {
+            [commandCenter.changePlaybackPositionCommand setEnabled:false];
+            [commandCenter.changePlaybackPositionCommand removeTarget:self action:NULL];
+            [commandCenter.skipForwardCommand removeTarget:self];
+            [commandCenter.skipBackwardCommand removeTarget:self];
+        }
+
+        [self setLatestEventCallbackId:nil];
     }
 
-    [self setLatestEventCallbackId:nil];
-}
-
-- (void) dealloc {
-    [self deregisterMusicControlsEventListener];
-}
-
-- (void)setCoverArtworkAsync:(NSString *)coverUri completion:(void (^)(MPMediaItemArtwork *))completion {
-    if (!coverUri) {
-        completion(nil);
-        return;
+    - (void) dealloc {
+        [self deregisterMusicControlsEventListener];
     }
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        UIImage *coverImage = nil;
+    - (void)setCoverArtworkAsync:(NSString *)coverUri completion:(void (^)(MPMediaItemArtwork *))completion {
+        if (!coverUri) {
+            completion(nil);
+            return;
+        }
 
-        if ([coverUri hasPrefix:@"http://"] || [coverUri hasPrefix:@"https://"]) {
-            NSURL *coverImageUrl = [NSURL URLWithString:coverUri];
-            NSURLSession *session = [NSURLSession sharedSession];
-            NSURLSessionDataTask *downloadTask = [session dataTaskWithURL:coverImageUrl completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-                if (data) {
-                    UIImage *downloadedCover = [UIImage imageWithData:data];
-                    if (downloadedCover) {
-                        MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:downloadedCover.size requestHandler:^UIImage * _Nonnull(CGSize size) {
-                            return downloadedCover;
-                        }];
-                        completion(artwork);
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            __block UIImage *coverImage = nil;
+
+            if ([coverUri hasPrefix:@"http://"] || [coverUri hasPrefix:@"https://"]) {
+                NSURL *coverImageUrl = [NSURL URLWithString:coverUri];
+
+                // Crear una solicitud con caché deshabilitada para AirPlay
+                NSURLRequest *request = [NSURLRequest requestWithURL:coverImageUrl
+                                                        cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData
+                                                    timeoutInterval:15.0];
+
+                NSURLSession *session = [NSURLSession sharedSession];
+
+                dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+                NSURLSessionDataTask *downloadTask = [session dataTaskWithRequest:request
+                                                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                    if (data && !error) {
+                        coverImage = [UIImage imageWithData:data];
+                        if (coverImage) {
+                            // En iOS 14+, crear artwork de alta resolución para AirPlay
+                            if (@available(iOS 14.0, *)) {
+                                MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
+                                                                                             requestHandler:^UIImage * _Nonnull(CGSize size) {
+                                    return coverImage;
+                                }];
+                                completion(artwork);
+                            } else {
+                                MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
+                                completion(artwork);
+                            }
+                        } else {
+                            NSLog(@"❌ No se pudo crear imagen desde los datos descargados");
+                            completion(nil);
+                        }
+                    } else {
+                        NSLog(@"❌ Error descargando artwork: %@", error.localizedDescription);
+                        completion(nil);
+                    }
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                [downloadTask resume];
+
+                // Esperar hasta 10 segundos por la imagen (evita bloqueos)
+                dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC));
+                if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
+                    NSLog(@"⚠️ Timeout al cargar artwork");
+                    completion(nil);
+                }
+            } else if ([coverUri hasPrefix:@"file://"]) {
+                NSString *fullCoverImagePath = [coverUri stringByReplacingOccurrencesOfString:@"file://" withString:@""];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
+                    coverImage = [[UIImage alloc] initWithContentsOfFile:fullCoverImagePath];
+
+                    if (coverImage) {
+                        // En iOS 14+, crear artwork de alta resolución para AirPlay
+                        if (@available(iOS 14.0, *)) {
+                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
+                                                                                         requestHandler:^UIImage * _Nonnull(CGSize size) {
+                                return coverImage;
+                            }];
+                            completion(artwork);
+                        } else {
+                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
+                            completion(artwork);
+                        }
                     } else {
                         completion(nil);
                     }
                 } else {
                     completion(nil);
                 }
-            }];
-            [downloadTask resume];
-        } else if ([coverUri hasPrefix:@"file://"]) {
-            NSString *fullCoverImagePath = [coverUri stringByReplacingOccurrencesOfString:@"file://" withString:@""];
-            if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
-                coverImage = [[UIImage alloc] initWithContentsOfFile:fullCoverImagePath];
+            } else {
+                NSString *baseCoverImagePath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+                NSString *fullCoverImagePath = [NSString stringWithFormat:@"%@%@", baseCoverImagePath, coverUri];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
+                    coverImage = [UIImage imageNamed:fullCoverImagePath];
+
+                    if (coverImage) {
+                        // En iOS 14+, crear artwork de alta resolución para AirPlay
+                        if (@available(iOS 14.0, *)) {
+                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
+                                                                                         requestHandler:^UIImage * _Nonnull(CGSize size) {
+                                return coverImage;
+                            }];
+                            completion(artwork);
+                        } else {
+                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
+                            completion(artwork);
+                        }
+                    } else {
+                        completion(nil);
+                    }
+                } else {
+                    completion(nil);
+                }
             }
-        } else {
-            NSString *baseCoverImagePath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
-            NSString *fullCoverImagePath = [NSString stringWithFormat:@"%@%@", baseCoverImagePath, coverUri];
-            if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
-                coverImage = [UIImage imageNamed:fullCoverImagePath];
-            }
-        }
+        });
+    }
 
-        if (coverImage) {
-            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size requestHandler:^UIImage * _Nonnull(CGSize size) {
-                return coverImage;
-            }];
-            completion(artwork);
-        } else {
-            completion(nil);
-        }
-    });
-}
-
-
-@end
+    @end
