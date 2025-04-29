@@ -88,6 +88,11 @@
 		<source-file src="src/ios/MusicControls.m" />
 		<header-file src="src/ios/MusicControlsInfo.h" />
 		<source-file src="src/ios/MusicControlsInfo.m" />
+
+		<!-- Nuevos archivos del gestor de sesión de audio -->
+		<header-file src="src/ios/CDVAudioSessionManager.h" />
+		<source-file src="src/ios/CDVAudioSessionManager.m" />
+
 		<framework src="MediaPlayer.framework" />
 	</platform>
 
