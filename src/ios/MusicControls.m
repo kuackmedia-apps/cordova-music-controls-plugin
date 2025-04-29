@@ -5,107 +5,55 @@
 //  Created by Juan Gonzalez on 12/16/16.
 //  Updated by Gaven Henry on 11/7/17 for iOS 11 compatibility & new features
 //  Updated by Eugene Cross on 14/10/19 for iOS 13 compatibility
-//  Updated for AirPlay compatibility in iOS 14+ [2025]
+//
 //
 
 #import "MusicControls.h"
 #import "MusicControlsInfo.h"
+#import "CDVAudioSessionManager.h"
 
 //save the passed in info globally so we can configure the enabled/disabled commands and skip intervals
 MusicControlsInfo * musicControlsSettings;
-AVPlayer * avPlayer;
 
 @implementation MusicControls
 
-- (void)create:(CDVInvokedUrlCommand *)command {
-    NSLog(@"🚩 MusicControls.create iniciado.");
+- (void)pluginInitialize {
+    // Configurar AVAudioSession utilizando el gestor centralizado
+    [[CDVAudioSessionManager sharedInstance] setupAudioSessionForPlayback];
+    [[CDVAudioSessionManager sharedInstance] activateAudioSession];
+}
 
-    // Configuración específica para AirPlay
-    NSError *audioSessionError = nil;
-    self.avSession = [AVAudioSession sharedInstance];
-
-    // En iOS 14+, usar opciones de categoría específicas para AirPlay
-    if (@available(iOS 14.0, *)) {
-        [self.avSession setCategory:AVAudioSessionCategoryPlayback
-                         withOptions:AVAudioSessionCategoryOptionAllowAirPlay | AVAudioSessionCategoryOptionDefaultToSpeaker
-                               error:&audioSessionError];
-    } else {
-        [self.avSession setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
-    }
-
-    // Establecer modo de audio optimizado para música
-    [self.avSession setMode:AVAudioSessionModeDefault error:&audioSessionError];
-    [self.avSession setActive:YES error:&audioSessionError];
-
-    if (audioSessionError) {
-        NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
-    } else {
-        NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
-    }
-
-    NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
-    MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
+- (void) create: (CDVInvokedUrlCommand *) command {
+    NSDictionary * musicControlsInfoDict = [command.arguments objectAtIndex:0];
+    MusicControlsInfo * musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
     musicControlsSettings = musicControlsInfo;
 
     if (!NSClassFromString(@"MPNowPlayingInfoCenter")) {
-        NSLog(@"⚠️ MPNowPlayingInfoCenter no está disponible.");
         return;
     }
 
-    NSLog(@"ℹ️ Iniciando carga asincrónica del artwork con URL: %@", [musicControlsInfo cover]);
-
     [self.commandDelegate runInBackground:^{
-        [self setCoverArtworkAsync:[musicControlsInfo cover] completion:^(MPMediaItemArtwork *artwork) {
-            MPNowPlayingInfoCenter *nowPlayingInfoCenter = [MPNowPlayingInfoCenter defaultCenter];
-            NSMutableDictionary *updatedNowPlayingInfo = [NSMutableDictionary dictionary];
+        MPNowPlayingInfoCenter * nowPlayingInfoCenter =  [MPNowPlayingInfoCenter defaultCenter];
+        NSDictionary * nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo;
+        NSMutableDictionary * updatedNowPlayingInfo = [NSMutableDictionary dictionaryWithDictionary:nowPlayingInfo];
 
-            if (artwork != nil) {
-                NSLog(@"✅ Artwork cargado correctamente.");
-                updatedNowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
-            } else {
-                NSLog(@"❌ Artwork no pudo ser cargado (nil).");
-            }
+        MPMediaItemArtwork * mediaItemArtwork = [self createCoverArtwork:[musicControlsInfo cover]];
+        NSNumber * duration = [NSNumber numberWithInt:[musicControlsInfo duration]];
+        NSNumber * elapsed = [NSNumber numberWithInt:[musicControlsInfo elapsed]];
+        NSNumber * playbackRate = [NSNumber numberWithBool:[musicControlsInfo isPlaying]];
 
-            NSLog(@"🎵 Artist: %@", [musicControlsInfo artist]);
-            NSLog(@"🎵 Track: %@", [musicControlsInfo track]);
-            NSLog(@"🎵 Album: %@", [musicControlsInfo album]);
+        if (mediaItemArtwork != nil) {
+            [updatedNowPlayingInfo setObject:mediaItemArtwork forKey:MPMediaItemPropertyArtwork];
+        }
 
-            updatedNowPlayingInfo[MPMediaItemPropertyArtist] = [musicControlsInfo artist];
-            updatedNowPlayingInfo[MPMediaItemPropertyTitle] = [musicControlsInfo track];
-            updatedNowPlayingInfo[MPMediaItemPropertyAlbumTitle] = [musicControlsInfo album];
-            updatedNowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = @(musicControlsInfo.duration);
-            updatedNowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(musicControlsInfo.elapsed);
-            updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(musicControlsInfo.isPlaying);
+        [updatedNowPlayingInfo setObject:[musicControlsInfo artist] forKey:MPMediaItemPropertyArtist];
+        [updatedNowPlayingInfo setObject:[musicControlsInfo track] forKey:MPMediaItemPropertyTitle];
+        [updatedNowPlayingInfo setObject:[musicControlsInfo album] forKey:MPMediaItemPropertyAlbumTitle];
+        [updatedNowPlayingInfo setObject:duration forKey:MPMediaItemPropertyPlaybackDuration];
+        [updatedNowPlayingInfo setObject:elapsed forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
+        [updatedNowPlayingInfo setObject:playbackRate forKey:MPNowPlayingInfoPropertyPlaybackRate];
 
-            // Adición específica para iOS 14+ y AirPlay
-            if (@available(iOS 14.0, *)) {
-                // Estas propiedades ayudan a AirPlay a manejar mejor los metadatos
-                updatedNowPlayingInfo[MPNowPlayingInfoPropertyIsLiveStream] = @(NO);
-                updatedNowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = @(MPNowPlayingInfoMediaTypeAudio);
-                updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = @(0);
-                updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = @(1);
-                updatedNowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = @(1.0);
-
-                // Esta propiedad es crucial para identificación externa
-                NSString *uniqueIdentifier = [NSString stringWithFormat:@"%@-%@-%@",
-                                             [musicControlsInfo artist],
-                                             [musicControlsInfo track],
-                                             [musicControlsInfo album]];
-
-                // Usar un identificador único pero estable para AirPlay
-                NSUInteger hashValue = [uniqueIdentifier hash];
-                NSNumber *persistentID = [NSNumber numberWithUnsignedLongLong:(uint64_t)hashValue];
-                updatedNowPlayingInfo[MPMediaItemPropertyPersistentID] = persistentID;
-            }
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
-                NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito: %@", updatedNowPlayingInfo);
-
-                // Forzar una actualización para AirPlay
-                [self forceNowPlayingInfoRefresh];
-            });
-        }];
+        nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
     }];
 
     [self registerMusicControlsEventListener];
