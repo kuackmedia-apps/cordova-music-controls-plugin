@@ -19,19 +19,23 @@ MusicControlsInfo * musicControlsSettings;
 - (void)create:(CDVInvokedUrlCommand *)command {
     NSLog(@"🚩 MusicControls.create iniciado.");
 
-    NSLog(@"🚩 MusicControls.create iniciado.");
+    NSError *audioSessionError = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
 
-        NSError *audioSessionError = nil;
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
-        [session setActive:YES error:&audioSessionError];
+    // Configurar opciones para AirPlay
+    AVAudioSessionCategoryOptions options = AVAudioSessionCategoryOptionMixWithOthers |
+                                           AVAudioSessionCategoryOptionAllowAirPlay |
+                                           AVAudioSessionCategoryOptionAllowBluetooth |
+                                           AVAudioSessionCategoryOptionAllowBluetoothA2DP;
 
-        if (audioSessionError) {
-            NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
-        } else {
-            NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
-        }
+    [session setCategory:AVAudioSessionCategoryPlayback withOptions:options error:&audioSessionError];
+    [session setActive:YES error:&audioSessionError];
 
+    if (audioSessionError) {
+        NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
+    } else {
+        NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
+    }
 
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
@@ -68,16 +72,24 @@ MusicControlsInfo * musicControlsSettings;
             updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(musicControlsInfo.isPlaying);
 
             dispatch_async(dispatch_get_main_queue(), ^{
+                // Forzar actualización para AirPlay
                 nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
-                NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito: %@", updatedNowPlayingInfo);
+
+                // Pequeño hack para forzar actualización en AirPlay
+                NSDictionary *tempInfo = @{MPMediaItemPropertyTitle: @""};
+                nowPlayingInfoCenter.nowPlayingInfo = tempInfo;
+
+                // Restaurar información completa después de un pequeño delay
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
+                    NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito para AirPlay: %@", updatedNowPlayingInfo);
+                });
             });
         }];
     }];
 
     [self registerMusicControlsEventListener];
 }
-
-
 
 - (void) updateIsPlaying: (CDVInvokedUrlCommand *) command {
     NSDictionary * musicControlsInfoDict = [command.arguments objectAtIndex:0];
@@ -397,6 +409,5 @@ MusicControlsInfo * musicControlsSettings;
         }
     });
 }
-
 
 @end
