@@ -19,18 +19,16 @@ MusicControlsInfo * musicControlsSettings;
 - (void)create:(CDVInvokedUrlCommand *)command {
     NSLog(@"🚩 MusicControls.create iniciado.");
 
-    NSLog(@"🚩 MusicControls.create iniciado.");
+    NSError *audioSessionError = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
+    [session setActive:YES error:&audioSessionError];
 
-        NSError *audioSessionError = nil;
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
-        [session setActive:YES error:&audioSessionError];
-
-        if (audioSessionError) {
-            NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
-        } else {
-            NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
-        }
+    if (audioSessionError) {
+        NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
+    } else {
+        NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
+    }
 
 
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
