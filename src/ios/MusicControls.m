@@ -20,6 +20,7 @@ AVPlayer * avPlayer;
 - (void)create:(CDVInvokedUrlCommand *)command {
     NSLog(@"🚩 MusicControls.create iniciado.");
 
+    /*
     // Configuración específica para AirPlay
     NSError *audioSessionError = nil;
     self.avSession = [AVAudioSession sharedInstance];
@@ -42,6 +43,7 @@ AVPlayer * avPlayer;
     } else {
         NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
     }
+     */
 
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
