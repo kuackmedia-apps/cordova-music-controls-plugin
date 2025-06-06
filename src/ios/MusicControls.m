@@ -20,30 +20,6 @@ AVPlayer * avPlayer;
 - (void)create:(CDVInvokedUrlCommand *)command {
     NSLog(@"🚩 MusicControls.create iniciado.");
 
-    /*
-    // Configuración específica para AirPlay
-    NSError *audioSessionError = nil;
-    self.avSession = [AVAudioSession sharedInstance];
-
-    // En iOS 14+, usar opciones de categoría específicas para AirPlay
-    if (@available(iOS 14.0, *)) {
-        [self.avSession setCategory:AVAudioSessionCategoryPlayback
-                         withOptions:AVAudioSessionCategoryOptionAllowAirPlay | AVAudioSessionCategoryOptionDefaultToSpeaker
-                               error:&audioSessionError];
-    } else {
-        [self.avSession setCategory:AVAudioSessionCategoryPlayback error:&audioSessionError];
-    }
-
-    // Establecer modo de audio optimizado para música
-    [self.avSession setMode:AVAudioSessionModeDefault error:&audioSessionError];
-    [self.avSession setActive:YES error:&audioSessionError];
-
-    if (audioSessionError) {
-        NSLog(@"❌ Error configurando audio session: %@", audioSessionError.localizedDescription);
-    } else {
-        NSLog(@"✅ AVAudioSession configurada con AVAudioSessionCategoryPlayback correctamente.");
-    }
-     */
 
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
