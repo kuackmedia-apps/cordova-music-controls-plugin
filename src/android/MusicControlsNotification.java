@@ -46,6 +46,7 @@ public class MusicControlsNotification {
 	private MediaSessionCompat mediaSessionCompat;
 
 	private final Object notificationLock = new Object();
+	private volatile boolean isUpdating = false; // Prevenir updates concurrentes
 	// Public Constructor
 
 	public MusicControlsNotification(Activity cordovaActivity, int id){
@@ -86,42 +87,79 @@ public class MusicControlsNotification {
 		this.mediaStyle.setMediaSession((MediaSession.Token) mediaSessionCompat.getSessionToken().getToken());
 		this.mediaSessionCompat = mediaSessionCompat;
 	}
-	// Show or update notification
 	public void updateNotification(MusicControlsInfos newInfos){
-		// Check if the cover has changed
-		Log.v("updateNotification synchronized", "Contructor MusicControlsNotification");
 		synchronized(notificationLock) {
-			if (!newInfos.cover.isEmpty() && (this.infos == null || !newInfos.cover.equals(this.infos.cover))) {
-				this.getBitmapCover(newInfos.cover);
+			// Prevenir updates múltiples simultáneos
+			if (isUpdating) {
+				return; // O hacer queue del update
 			}
-			this.infos = newInfos;
-			this.createBuilder();
-			Notification noti = this.notificationBuilder.build();
-			this.notificationManager.notify(this.notificationID, noti);
-			this.onNotificationUpdated(noti);
-			Log.v("updateNotification synchronized", "Contructor MusicControlsNotification");
+
+			try {
+				isUpdating = true;
+
+				// Check if the cover has changed
+				if (!newInfos.cover.isEmpty() && (this.infos == null || !newInfos.cover.equals(this.infos.cover))){
+					this.getBitmapCover(newInfos.cover);
+				}
+				this.infos = newInfos;
+				this.createBuilder();
+				Notification noti = this.notificationBuilder.build();
+
+				// Usar try-catch para capturar errores de notificación
+				try {
+					this.notificationManager.notify(this.notificationID, noti);
+					this.onNotificationUpdated(noti);
+				} catch (Exception e) {
+					Log.e("MusicControls", "Error updating notification", e);
+				}
+
+			} finally {
+				isUpdating = false;
+			}
 		}
 	}
 
-	// Toggle the play/pause button
 	public void updateIsPlaying(boolean isPlaying){
 		synchronized(notificationLock) {
-			this.infos.isPlaying = isPlaying;
-			this.createBuilder();
-			Notification noti = this.notificationBuilder.build();
-			this.notificationManager.notify(this.notificationID, noti);
-			this.onNotificationUpdated(noti);
+			if (isUpdating || this.infos == null) return;
+
+			try {
+				isUpdating = true;
+				this.infos.isPlaying = isPlaying;
+				this.createBuilder();
+				Notification noti = this.notificationBuilder.build();
+
+				try {
+					this.notificationManager.notify(this.notificationID, noti);
+					this.onNotificationUpdated(noti);
+				} catch (Exception e) {
+					Log.e("MusicControls", "Error updating notification", e);
+				}
+			} finally {
+				isUpdating = false;
+			}
 		}
 	}
 
-	// Toggle the dismissable status
 	public void updateDismissable(boolean dismissable){
 		synchronized(notificationLock) {
-			this.infos.dismissable = dismissable;
-			this.createBuilder();
-			Notification noti = this.notificationBuilder.build();
-			this.notificationManager.notify(this.notificationID, noti);
-			this.onNotificationUpdated(noti);
+			if (isUpdating || this.infos == null) return;
+
+			try {
+				isUpdating = true;
+				this.infos.dismissable = dismissable;
+				this.createBuilder();
+				Notification noti = this.notificationBuilder.build();
+
+				try {
+					this.notificationManager.notify(this.notificationID, noti);
+					this.onNotificationUpdated(noti);
+				} catch (Exception e) {
+					Log.e("MusicControls", "Error updating notification", e);
+				}
+			} finally {
+				isUpdating = false;
+			}
 		}
 	}
 
