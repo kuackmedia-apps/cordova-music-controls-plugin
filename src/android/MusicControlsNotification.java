@@ -84,8 +84,8 @@ public class MusicControlsNotification {
 		this.mediaSessionCompat = mediaSessionCompat;
 	}
 	// Show or update notification
-	public void updateNotification(MusicControlsInfos newInfos){
-		// Check if the cover has changed	
+	public synchronized  void updateNotification(MusicControlsInfos newInfos){
+		// Check if the cover has changed
 		if (!newInfos.cover.isEmpty() && (this.infos == null || !newInfos.cover.equals(this.infos.cover))){
 			this.getBitmapCover(newInfos.cover);
 		}
@@ -97,7 +97,7 @@ public class MusicControlsNotification {
 	}
 
 	// Toggle the play/pause button
-	public void updateIsPlaying(boolean isPlaying){
+	public synchronized void updateIsPlaying(boolean isPlaying){
 		this.infos.isPlaying=isPlaying;
 		this.createBuilder();
 		Notification noti = this.notificationBuilder.build();
@@ -106,7 +106,7 @@ public class MusicControlsNotification {
 	}
 
 	// Toggle the dismissable status
-	public void updateDismissable(boolean dismissable){
+	public synchronized void updateDismissable(boolean dismissable){
 		this.infos.dismissable=dismissable;
 		this.createBuilder();
 		Notification noti = this.notificationBuilder.build();
@@ -201,7 +201,7 @@ public class MusicControlsNotification {
 		if (!infos.ticker.isEmpty()){
 			builder.setTicker(infos.ticker);
 		}
-		
+
 		builder.setPriority(Notification.PRIORITY_MAX);
 
 		//If 5.0 >= set the controls to be visible on lockscreen
