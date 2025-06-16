@@ -44,7 +44,10 @@ public class MusicControlsNotification {
 	private String CHANNEL_ID;
 	private MediaStyle mediaStyle;
 	private MediaSessionCompat mediaSessionCompat;
+
+	private final Object notificationLock = new Object();
 	// Public Constructor
+
 	public MusicControlsNotification(Activity cordovaActivity, int id){
 		//this.CHANNEL_ID = UUID.randomUUID().toString();
 		this.CHANNEL_ID = "kuackmedia-music-controls";
@@ -84,34 +87,42 @@ public class MusicControlsNotification {
 		this.mediaSessionCompat = mediaSessionCompat;
 	}
 	// Show or update notification
-	public synchronized  void updateNotification(MusicControlsInfos newInfos){
+	public void updateNotification(MusicControlsInfos newInfos){
 		// Check if the cover has changed
-		if (!newInfos.cover.isEmpty() && (this.infos == null || !newInfos.cover.equals(this.infos.cover))){
-			this.getBitmapCover(newInfos.cover);
+		Log.v("updateNotification synchronized", "Contructor MusicControlsNotification");
+		synchronized(notificationLock) {
+			if (!newInfos.cover.isEmpty() && (this.infos == null || !newInfos.cover.equals(this.infos.cover))) {
+				this.getBitmapCover(newInfos.cover);
+			}
+			this.infos = newInfos;
+			this.createBuilder();
+			Notification noti = this.notificationBuilder.build();
+			this.notificationManager.notify(this.notificationID, noti);
+			this.onNotificationUpdated(noti);
+			Log.v("updateNotification synchronized", "Contructor MusicControlsNotification");
 		}
-		this.infos = newInfos;
-		this.createBuilder();
-		Notification noti = this.notificationBuilder.build();
-		this.notificationManager.notify(this.notificationID, noti);
-		this.onNotificationUpdated(noti);
 	}
 
 	// Toggle the play/pause button
-	public synchronized void updateIsPlaying(boolean isPlaying){
-		this.infos.isPlaying=isPlaying;
-		this.createBuilder();
-		Notification noti = this.notificationBuilder.build();
-		this.notificationManager.notify(this.notificationID, noti);
-		this.onNotificationUpdated(noti);
+	public void updateIsPlaying(boolean isPlaying){
+		synchronized(notificationLock) {
+			this.infos.isPlaying = isPlaying;
+			this.createBuilder();
+			Notification noti = this.notificationBuilder.build();
+			this.notificationManager.notify(this.notificationID, noti);
+			this.onNotificationUpdated(noti);
+		}
 	}
 
 	// Toggle the dismissable status
-	public synchronized void updateDismissable(boolean dismissable){
-		this.infos.dismissable=dismissable;
-		this.createBuilder();
-		Notification noti = this.notificationBuilder.build();
-		this.notificationManager.notify(this.notificationID, noti);
-		this.onNotificationUpdated(noti);
+	public void updateDismissable(boolean dismissable){
+		synchronized(notificationLock) {
+			this.infos.dismissable = dismissable;
+			this.createBuilder();
+			Notification noti = this.notificationBuilder.build();
+			this.notificationManager.notify(this.notificationID, noti);
+			this.onNotificationUpdated(noti);
+		}
 	}
 
 	// Get image from url
