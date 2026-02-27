@@ -53,7 +53,7 @@ AVPlayer * avPlayer;
             updatedNowPlayingInfo[MPMediaItemPropertyAlbumTitle] = [musicControlsInfo album];
             updatedNowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = @(musicControlsInfo.duration);
             updatedNowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(musicControlsInfo.elapsed);
-            updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(musicControlsInfo.isPlaying);
+            updatedNowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = [NSNumber numberWithDouble:[musicControlsInfo isPlaying] ? 1.0 : 0.0];
 
             // Adición específica para iOS 14+ y AirPlay
             if (@available(iOS 14.0, *)) {
@@ -103,7 +103,7 @@ AVPlayer * avPlayer;
     NSDictionary * musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo * musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
     NSNumber * elapsed = [NSNumber numberWithDouble:[musicControlsInfo elapsed]];
-    NSNumber * playbackRate = [NSNumber numberWithBool:[musicControlsInfo isPlaying]];
+    NSNumber * playbackRate = [NSNumber numberWithDouble:[musicControlsInfo isPlaying] ? 1.0 : 0.0];
 
     if (!NSClassFromString(@"MPNowPlayingInfoCenter")) {
         return;
