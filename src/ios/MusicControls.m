@@ -91,22 +91,11 @@ AVPlayer * avPlayer;
 
 // Método para forzar la actualización de NowPlayingInfo (especialmente para AirPlay)
 - (void)forceNowPlayingInfoRefresh {
-    // Forzar la actualización puede ayudar a AirPlay a reconocer los cambios
     if (@available(iOS 14.0, *)) {
-        // Pequeño cambio en el volumen para forzar una actualización
         MPNowPlayingInfoCenter *center = [MPNowPlayingInfoCenter defaultCenter];
-        NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionaryWithDictionary:center.nowPlayingInfo];
-        float currentRate = [[nowPlayingInfo objectForKey:MPNowPlayingInfoPropertyPlaybackRate] floatValue];
-
-        // Cambiar brevemente la tasa de reproducción y luego restaurarla
-        [nowPlayingInfo setObject:@(currentRate + 0.01) forKey:MPNowPlayingInfoPropertyPlaybackRate];
-        center.nowPlayingInfo = nowPlayingInfo;
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            NSMutableDictionary *updatedInfo = [NSMutableDictionary dictionaryWithDictionary:center.nowPlayingInfo];
-            [updatedInfo setObject:@(currentRate) forKey:MPNowPlayingInfoPropertyPlaybackRate];
-            center.nowPlayingInfo = updatedInfo;
-        });
+        if (!center.nowPlayingInfo) return;
+        // Re-assign triggers system update
+        center.nowPlayingInfo = [NSDictionary dictionaryWithDictionary:center.nowPlayingInfo];
     }
 }
 
@@ -371,16 +360,8 @@ AVPlayer * avPlayer;
             if ([[output portType] isEqualToString:AVAudioSessionPortAirPlay]) {
                 NSLog(@"🎧 Ruta de audio cambiada a AirPlay, actualizando información de reproducción");
 
-                // Actualizar todo en un hilo separado
-                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                    // Iniciar con un pequeño retraso para asegurar que AirPlay esté listo
-                    [NSThread sleepForTimeInterval:0.5];
-
-                    // Forzar actualización de la información de reproducción para AirPlay
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        [self refreshNowPlayingInfoForAirPlay];
-                        [self forceNowPlayingInfoRefresh];
-                    });
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self refreshNowPlayingInfoForAirPlay];
                 });
             }
         }
@@ -580,30 +561,20 @@ AVPlayer * avPlayer;
             if ([coverUri hasPrefix:@"http://"] || [coverUri hasPrefix:@"https://"]) {
                 NSURL *coverImageUrl = [NSURL URLWithString:coverUri];
 
-                // Crear una solicitud con caché deshabilitada para AirPlay
                 NSURLRequest *request = [NSURLRequest requestWithURL:coverImageUrl
                                                         cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData
-                                                    timeoutInterval:15.0];
+                                                    timeoutInterval:10.0];
 
-                NSURLSession *session = [NSURLSession sharedSession];
-
-                dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-                NSURLSessionDataTask *downloadTask = [session dataTaskWithRequest:request
+                NSURLSessionDataTask *downloadTask = [[NSURLSession sharedSession] dataTaskWithRequest:request
                                                               completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                     if (data && !error) {
-                        coverImage = [UIImage imageWithData:data];
-                        if (coverImage) {
-                            // En iOS 14+, crear artwork de alta resolución para AirPlay
-                            if (@available(iOS 14.0, *)) {
-                                MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
-                                                                                             requestHandler:^UIImage * _Nonnull(CGSize size) {
-                                    return coverImage;
-                                }];
-                                completion(artwork);
-                            } else {
-                                MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
-                                completion(artwork);
-                            }
+                        UIImage *image = [UIImage imageWithData:data];
+                        if (image) {
+                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:image.size
+                                                                                         requestHandler:^UIImage * _Nonnull(CGSize size) {
+                                return image;
+                            }];
+                            completion(artwork);
                         } else {
                             NSLog(@"❌ No se pudo crear imagen desde los datos descargados");
                             completion(nil);
@@ -612,36 +583,19 @@ AVPlayer * avPlayer;
                         NSLog(@"❌ Error descargando artwork: %@", error.localizedDescription);
                         completion(nil);
                     }
-                    dispatch_semaphore_signal(semaphore);
                 }];
                 [downloadTask resume];
-
-                // Esperar hasta 10 segundos por la imagen (evita bloqueos)
-                dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC));
-                if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
-                    NSLog(@"⚠️ Timeout al cargar artwork");
-                    completion(nil);
-                }
             } else if ([coverUri hasPrefix:@"file://"]) {
                 NSString *fullCoverImagePath = [coverUri stringByReplacingOccurrencesOfString:@"file://" withString:@""];
                 if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
                     coverImage = [[UIImage alloc] initWithContentsOfFile:fullCoverImagePath];
-
-                    if (coverImage) {
-                        // En iOS 14+, crear artwork de alta resolución para AirPlay
-                        if (@available(iOS 14.0, *)) {
-                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
-                                                                                         requestHandler:^UIImage * _Nonnull(CGSize size) {
-                                return coverImage;
-                            }];
-                            completion(artwork);
-                        } else {
-                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
-                            completion(artwork);
-                        }
-                    } else {
-                        completion(nil);
-                    }
+                }
+                if (coverImage) {
+                    MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
+                                                                                 requestHandler:^UIImage * _Nonnull(CGSize size) {
+                        return coverImage;
+                    }];
+                    completion(artwork);
                 } else {
                     completion(nil);
                 }
@@ -650,22 +604,13 @@ AVPlayer * avPlayer;
                 NSString *fullCoverImagePath = [NSString stringWithFormat:@"%@%@", baseCoverImagePath, coverUri];
                 if ([[NSFileManager defaultManager] fileExistsAtPath:fullCoverImagePath]) {
                     coverImage = [UIImage imageNamed:fullCoverImagePath];
-
-                    if (coverImage) {
-                        // En iOS 14+, crear artwork de alta resolución para AirPlay
-                        if (@available(iOS 14.0, *)) {
-                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
-                                                                                         requestHandler:^UIImage * _Nonnull(CGSize size) {
-                                return coverImage;
-                            }];
-                            completion(artwork);
-                        } else {
-                            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithImage:coverImage];
-                            completion(artwork);
-                        }
-                    } else {
-                        completion(nil);
-                    }
+                }
+                if (coverImage) {
+                    MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:coverImage.size
+                                                                                 requestHandler:^UIImage * _Nonnull(CGSize size) {
+                        return coverImage;
+                    }];
+                    completion(artwork);
                 } else {
                     completion(nil);
                 }
