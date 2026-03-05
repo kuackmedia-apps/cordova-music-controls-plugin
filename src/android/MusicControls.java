@@ -41,6 +41,9 @@ import java.util.List;
 import android.view.View;
 import android.os.PowerManager;
 
+import androidx.mediarouter.media.MediaRouter;
+import androidx.mediarouter.media.MediaRouteSelector;
+
 import static android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS;
 
 public class MusicControls extends CordovaPlugin {
@@ -60,6 +63,8 @@ public class MusicControls extends CordovaPlugin {
 	private MusicControlsServiceConnection mConnection;
 	private CallbackContext volumeCallbackContext;
 	private VolumeProviderCompat volumeProvider;
+	private MediaRouter mediaRouter;
+	private MediaRouter.Callback mediaRouterCallback;
 
 	private void registerBroadcaster(MusicControlsBroadcastReceiver mMessageReceiver){
 		final Context context = this.cordova.getActivity().getApplicationContext();
@@ -180,6 +185,29 @@ public class MusicControls extends CordovaPlugin {
 		setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED);
 
 		this.mediaSessionCompat.setCallback(this.mMediaSessionCallback);
+
+		// MediaRouter: listen for system output picker route selections (Android 11+)
+		cordova.getActivity().runOnUiThread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					MusicControls.this.mediaRouter = MediaRouter.getInstance(cordova.getActivity());
+					MusicControls.this.mediaRouterCallback = new MediaRouter.Callback() {
+						@Override
+						public void onRouteSelected(MediaRouter router, MediaRouter.RouteInfo route) {
+							Log.i("MusicControls", "MediaRouter onRouteSelected: " + route.getName() + " id=" + route.getId() + " isDefault=" + route.isDefault());
+						}
+					};
+					MusicControls.this.mediaRouter.addCallback(
+						MediaRouteSelector.EMPTY,
+						MusicControls.this.mediaRouterCallback,
+						MediaRouter.CALLBACK_FLAG_UNFILTERED_EVENTS
+					);
+				} catch (Exception e) {
+					Log.e("MusicControls", "MediaRouter init failed: " + e.getMessage());
+				}
+			}
+		});
 
 		// Register media (headset) button event receiver
 		try {
@@ -335,6 +363,9 @@ public class MusicControls extends CordovaPlugin {
             }
         }
 
+		if (this.mediaRouter != null && this.mediaRouterCallback != null) {
+			this.mediaRouter.removeCallback(this.mediaRouterCallback);
+		}
 		this.notification.destroy();
 		this.mMessageReceiver.stopListening();
 		this.unregisterMediaButtonEvent();
