@@ -22,6 +22,7 @@ public class MusicControlsInfos{
 	public String closeIcon;
 	public String notificationIcon;
 	public Long duration;
+	public Long elapsed;
 	public boolean isCasting;
 
 	public MusicControlsInfos(JSONArray args) throws JSONException {
@@ -45,6 +46,7 @@ public class MusicControlsInfos{
 		this.closeIcon = params.getString("closeIcon");
 		this.notificationIcon = params.getString("notificationIcon");
 		this.duration = params.getLong("duration");
+		this.elapsed = params.optLong("elapsed", 0);
 		this.isCasting = params.getBoolean("isCasting");
 	}
 

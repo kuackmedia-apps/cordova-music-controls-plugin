@@ -267,9 +267,9 @@ public class MusicControls extends CordovaPlugin {
 					}
 
 					if(infos.isPlaying)
-						setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING);
+						setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, infos.elapsed);
 					else
-						setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED);
+						setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, infos.elapsed);
 					notification.updateNotification(infos);
 					callbackContext.success("success");
 				}
