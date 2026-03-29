@@ -86,6 +86,7 @@ AVPlayer * avPlayer;
         }];
     }];
 
+    [self deregisterMusicControlsEventListener];
     [self registerMusicControlsEventListener];
 }
 
@@ -344,7 +345,6 @@ AVPlayer * avPlayer;
 - (void)handleAudioRouteChange:(NSNotification *)notification {
     NSNumber *reasonValue = [notification.userInfo objectForKey:AVAudioSessionRouteChangeReasonKey];
     AVAudioSessionRouteChangeReason reason = [reasonValue unsignedIntegerValue];
-
     NSLog(@"🔄 Cambio detectado en la ruta de audio, razón: %lu", (unsigned long)reason);
 
     // Detectar cuando se conecta a AirPlay u otro dispositivo externo
@@ -502,11 +502,6 @@ AVPlayer * avPlayer;
         }
     }
 
-    // Agregar manejador para togglePlayPause en iOS 14+
-    if (@available(iOS 14.0, *)) {
-        [commandCenter.togglePlayPauseCommand setEnabled:true];
-        [commandCenter.togglePlayPauseCommand addTarget:self action:@selector(togglePlayPauseEvent:)];
-    }
 }
 
 // Manejar el evento de togglePlayPause específicamente para iOS 14+
@@ -522,7 +517,7 @@ AVPlayer * avPlayer;
 
 - (void) deregisterMusicControlsEventListener {
     [[UIApplication sharedApplication] endReceivingRemoteControlEvents];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"receivedEvent" object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"musicControlsEventNotification" object:nil];
 
     // Eliminar todos los observadores de AirPlay y reproducción externa
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionRouteChangeNotification object:nil];
@@ -531,6 +526,8 @@ AVPlayer * avPlayer;
     [[NSNotificationCenter defaultCenter] removeObserver:self name:@"AVPlayerExternalPlaybackActiveDidChangeNotification" object:nil];
 
         MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+        [commandCenter.playCommand removeTarget:self];
+        [commandCenter.pauseCommand removeTarget:self];
         [commandCenter.nextTrackCommand removeTarget:self];
         [commandCenter.previousTrackCommand removeTarget:self];
         [commandCenter.togglePlayPauseCommand removeTarget:self];
@@ -542,7 +539,6 @@ AVPlayer * avPlayer;
             [commandCenter.skipBackwardCommand removeTarget:self];
         }
 
-        [self setLatestEventCallbackId:nil];
     }
 
     - (void) dealloc {
