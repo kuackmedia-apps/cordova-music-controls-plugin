@@ -18,19 +18,13 @@ AVPlayer * avPlayer;
 @implementation MusicControls
 
 - (void)create:(CDVInvokedUrlCommand *)command {
-    NSLog(@"🚩 MusicControls.create iniciado.");
-
-
     NSDictionary *musicControlsInfoDict = [command.arguments objectAtIndex:0];
     MusicControlsInfo *musicControlsInfo = [[MusicControlsInfo alloc] initWithDictionary:musicControlsInfoDict];
     musicControlsSettings = musicControlsInfo;
 
     if (!NSClassFromString(@"MPNowPlayingInfoCenter")) {
-        NSLog(@"⚠️ MPNowPlayingInfoCenter no está disponible.");
         return;
     }
-
-    NSLog(@"ℹ️ Iniciando carga asincrónica del artwork con URL: %@", [musicControlsInfo cover]);
 
     [self.commandDelegate runInBackground:^{
         [self setCoverArtworkAsync:[musicControlsInfo cover] completion:^(MPMediaItemArtwork *artwork) {
@@ -38,15 +32,8 @@ AVPlayer * avPlayer;
             NSMutableDictionary *updatedNowPlayingInfo = [NSMutableDictionary dictionary];
 
             if (artwork != nil) {
-                NSLog(@"✅ Artwork cargado correctamente.");
                 updatedNowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
-            } else {
-                NSLog(@"❌ Artwork no pudo ser cargado (nil).");
             }
-
-            NSLog(@"🎵 Artist: %@", [musicControlsInfo artist]);
-            NSLog(@"🎵 Track: %@", [musicControlsInfo track]);
-            NSLog(@"🎵 Album: %@", [musicControlsInfo album]);
 
             updatedNowPlayingInfo[MPMediaItemPropertyArtist] = [musicControlsInfo artist];
             updatedNowPlayingInfo[MPMediaItemPropertyTitle] = [musicControlsInfo track];
@@ -78,7 +65,6 @@ AVPlayer * avPlayer;
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 nowPlayingInfoCenter.nowPlayingInfo = updatedNowPlayingInfo;
-                NSLog(@"ℹ️ NowPlayingInfo actualizado con éxito: %@", updatedNowPlayingInfo);
 
                 // Forzar una actualización para AirPlay
                 [self forceNowPlayingInfoRefresh];
@@ -234,12 +220,6 @@ AVPlayer * avPlayer;
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
 
-    // Si el evento viene de AirPlay, registrarlo específicamente
-    if ([event.command isKindOfClass:[MPRemoteCommand class]] &&
-        [NSStringFromClass([event.command class]) containsString:@"Extern"]) {
-        NSLog(@"🔊 Pausa recibida desde AirPlay");
-    }
-
     return MPRemoteCommandHandlerStatusSuccess;
 }
 
@@ -248,12 +228,6 @@ AVPlayer * avPlayer;
     NSString * jsonAction = [NSString stringWithFormat:@"{\"message\":\"%@\"}", action];
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
-
-    // Si el evento viene de AirPlay, registrarlo específicamente
-    if ([event.command isKindOfClass:[MPRemoteCommand class]] &&
-        [NSStringFromClass([event.command class]) containsString:@"Extern"]) {
-        NSLog(@"🔊 Play recibido desde AirPlay");
-    }
 
     return MPRemoteCommandHandlerStatusSuccess;
 }
@@ -337,15 +311,12 @@ AVPlayer * avPlayer;
                                                     name:@"AVPlayerExternalPlaybackActiveDidChangeNotification"
                                                   object:nil];
     }
-
-    NSLog(@"✅ Observadores AirPlay registrados correctamente");
 }
 
 // Maneja los cambios en la ruta de audio (cuando cambia a/desde AirPlay)
 - (void)handleAudioRouteChange:(NSNotification *)notification {
     NSNumber *reasonValue = [notification.userInfo objectForKey:AVAudioSessionRouteChangeReasonKey];
     AVAudioSessionRouteChangeReason reason = [reasonValue unsignedIntegerValue];
-    NSLog(@"🔄 Cambio detectado en la ruta de audio, razón: %lu", (unsigned long)reason);
 
     // Detectar cuando se conecta a AirPlay u otro dispositivo externo
     if (reason == AVAudioSessionRouteChangeReasonNewDeviceAvailable ||
@@ -355,11 +326,7 @@ AVPlayer * avPlayer;
         // Registrar nueva ruta
         AVAudioSessionRouteDescription *currentRoute = [[AVAudioSession sharedInstance] currentRoute];
         for (AVAudioSessionPortDescription *output in [currentRoute outputs]) {
-            NSLog(@"🎧 Dispositivo de salida activo: %@ (Tipo: %@)", [output portName], [output portType]);
-
             if ([[output portType] isEqualToString:AVAudioSessionPortAirPlay]) {
-                NSLog(@"🎧 Ruta de audio cambiada a AirPlay, actualizando información de reproducción");
-
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self refreshNowPlayingInfoForAirPlay];
                 });
@@ -408,7 +375,6 @@ AVPlayer * avPlayer;
                 // Actualizar la información en el hilo principal
                 dispatch_async(dispatch_get_main_queue(), ^{
                     center.nowPlayingInfo = updatedInfo;
-                    NSLog(@"✅ NowPlayingInfo actualizado específicamente para AirPlay");
                 });
             }];
         }];
@@ -420,23 +386,17 @@ AVPlayer * avPlayer;
     AVPlayer *player = notification.object;
 
     if (player.isExternalPlaybackActive) {
-        NSLog(@"📱➡️🔊 Reproducción externa (AirPlay) está ahora activa");
         dispatch_async(dispatch_get_main_queue(), ^{
             [self refreshNowPlayingInfoForAirPlay];
         });
-    } else {
-        NSLog(@"🔊➡️📱 Reproducción externa (AirPlay) está ahora inactiva");
     }
 }
 
 // Manejar notificaciones específicas de AVPlayer
 - (void)handleAVPlayerItemDidPlayToEndTime:(NSNotification *)notification {
-    NSLog(@"🎵 AVPlayerItem terminó la reproducción");
 }
 
 - (void)handleAVPlayerItemFailedToPlayToEndTime:(NSNotification *)notification {
-    NSError *error = [[notification userInfo] objectForKey:AVPlayerItemFailedToPlayToEndTimeErrorKey];
-    NSLog(@"❌ Error en reproducción de AVPlayerItem: %@", [error localizedDescription]);
 }
 
 //There are only 3 button slots available so next/prev track and skip forward/back cannot both be enabled
@@ -511,7 +471,6 @@ AVPlayer * avPlayer;
     CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:jsonAction];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:[self latestEventCallbackId]];
 
-    NSLog(@"🔄 Evento toggle play/pause recibido (posiblemente desde AirPlay)");
     return MPRemoteCommandHandlerStatusSuccess;
 }
 
@@ -572,11 +531,9 @@ AVPlayer * avPlayer;
                             }];
                             completion(artwork);
                         } else {
-                            NSLog(@"❌ No se pudo crear imagen desde los datos descargados");
                             completion(nil);
                         }
                     } else {
-                        NSLog(@"❌ Error descargando artwork: %@", error.localizedDescription);
                         completion(nil);
                     }
                 }];

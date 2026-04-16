@@ -59,9 +59,6 @@ public class MusicControlsNotification {
 		this.mediaStyle = new MediaStyle();
 		//this.mediaStyle.setMediaSession(cordovaActivity.getMediaController().getSessionToken());
 
-		Log.v("MediaControllerSession", "Contructor MusicControlsNotification");
-
-
 		// use channelid for Oreo and higher
 		if (Build.VERSION.SDK_INT >= 26) {
 			// The user-visible name of the channel.
@@ -338,7 +335,6 @@ public class MusicControlsNotification {
 			for (int i = 0; i < nbControls; ++i) {
 				args[i] = i;
 			}
-			Log.v("MediaControllerSession", "createBuilder");
 			//this.mediaStyle.setMediaSession(this.mediaSessionCompat.getMediaSession());
 			builder.setStyle(this.mediaStyle.setShowActionsInCompactView(args));
 		}

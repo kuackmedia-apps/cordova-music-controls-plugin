@@ -6,7 +6,6 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
-import android.util.Log;
 
 public class MusicControlsServiceConnection implements ServiceConnection {
     protected MusicControlsNotificationKiller service;
@@ -18,11 +17,8 @@ public class MusicControlsServiceConnection implements ServiceConnection {
     }
 
     public void onServiceConnected(ComponentName className, IBinder binder) {
-        Log.v("MusicControlsServiceConnection", "Connected to service 1");
         service = ((KillBinder) binder).service;
-        Log.v("MusicControlsServiceConnection", "Connected to service 2");
         //service.startService(new Intent(activity, MusicControlsNotificationKiller.class));
-        Log.v("MusicControlsServiceConnection 2", "Connected to service");
     }
 
     public void onServiceDisconnected(ComponentName className) {
@@ -32,7 +28,6 @@ public class MusicControlsServiceConnection implements ServiceConnection {
         if (this.service == null) {
             return;
         }
-        Log.v("MusicControlsServiceConnection setNotification", isPlaying ? "true" : "false");
 
         if (isPlaying && !this.isForeground) {
             this.service.setForeground(notification);

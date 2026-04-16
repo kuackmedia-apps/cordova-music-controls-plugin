@@ -9,7 +9,6 @@ import android.os.IBinder;
 import android.app.NotificationManager;
 import android.content.Intent;
 import androidx.core.app.NotificationCompat;
-import android.util.Log;
 import android.content.pm.ServiceInfo;
 
 public class MusicControlsNotificationKiller extends Service {
@@ -45,7 +44,6 @@ public class MusicControlsNotificationKiller extends Service {
     public void setForeground(Notification notification) {
 
         try {
-            Log.v("MusicControlsService", "Poniendo en primer plano el servicio " + notification.toString());
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                // ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
                 this.startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -54,7 +52,6 @@ public class MusicControlsNotificationKiller extends Service {
             }
         }  catch (Exception e) {
             // Manejar cualquier otra excepción que pueda ocurrir
-            Log.v("MusicControlsService", "Error al intentar poner en primer plano el servicio: " + e.getMessage());
         }
     }
 

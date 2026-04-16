@@ -143,8 +143,6 @@ public class MusicControls extends CordovaPlugin {
 		) {
 			@Override
 			public void onAdjustVolume(int direction) {
-				Log.v("VolumeProviderCompat", "Ajustar volumen: " + direction);
-
 				// Si se ha asignado el CallbackContext, enviar el evento
 				if (volumeCallbackContext != null) {
 					// Puedes enviar un objeto JSON o simplemente la dirección, según tus necesidades
@@ -173,7 +171,6 @@ public class MusicControls extends CordovaPlugin {
 		//mediaSessionCompat.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
 		//this.mediaSessionCompat.setPlaybackToRemote(this.mConnection.getRemoteVolumeProvider());
 	//	this.notification.setSessionToken(this.mediaSessionCompat.getSessionToken());
-		Log.v("MediaControllerSession", "this.mediaSessionCompat " + this.mediaSessionCompat.getSessionToken().toString());
 		this.notification.setMediaSessionCompat(mediaSessionCompat);
 
 		this.mediaSessionCompat.setActive(true);
@@ -252,7 +249,6 @@ public class MusicControls extends CordovaPlugin {
 			final boolean isPlaying = params.getBoolean("isPlaying");
 			final long position = params.getLong("position");
 			this.notification.updateIsPlaying(isPlaying);
-			Log.i("Music controls",  "updateIsPlaying " + position);
 			if(isPlaying)
 				setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, position);
 			else
