@@ -97,14 +97,6 @@ AVPlayer * avPlayer;
     }
 
     MPNowPlayingInfoCenter * nowPlayingCenter = [MPNowPlayingInfoCenter defaultCenter];
-
-    // Tras un destroy no hay nada que actualizar: re-publicar solo
-    // elapsed/rate sobre un Now Playing vacio resucitaba el lockscreen
-    // zombie con los metadatos viejos y playbackRate 0 ("pausado")
-    if (!musicControlsSettings || nowPlayingCenter.nowPlayingInfo == nil) {
-        return;
-    }
-
     NSMutableDictionary * updatedNowPlayingInfo = [NSMutableDictionary dictionaryWithDictionary:nowPlayingCenter.nowPlayingInfo];
 
     [updatedNowPlayingInfo setObject:elapsed forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
@@ -125,13 +117,6 @@ AVPlayer * avPlayer;
 
 - (void) destroy: (CDVInvokedUrlCommand *) command {
     [self deregisterMusicControlsEventListener];
-    // Limpiar el Now Playing del lockscreen: solo deregistrar los remote
-    // commands dejaba los metadatos viejos publicados ("Transmitiendo a X",
-    // pausado) con botones que no responden — lockscreen zombie
-    musicControlsSettings = nil;
-    if (NSClassFromString(@"MPNowPlayingInfoCenter")) {
-        [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
-    }
 }
 
 - (void) watch: (CDVInvokedUrlCommand *) command {
