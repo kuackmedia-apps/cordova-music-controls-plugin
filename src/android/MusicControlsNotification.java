@@ -11,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import android.media.Session2Token;
 import android.media.session.MediaSession;
@@ -47,6 +48,9 @@ public class MusicControlsNotification {
 
 	private final Object notificationLock = new Object();
 	private volatile boolean isUpdating = false; // Prevenir updates concurrentes
+	// kuackmedia (fgs-grace, N6): suma uno antes de cada notify. Un destroy encolado no borra una notificación
+	// publicada después de pedirlo.
+	private final AtomicInteger notifyCount = new AtomicInteger();
 	// Public Constructor
 
 	public MusicControlsNotification(Activity cordovaActivity, int id){
@@ -104,8 +108,9 @@ public class MusicControlsNotification {
 
 				// Usar try-catch para capturar errores de notificación
 				try {
+					this.notifyCount.incrementAndGet();
 					this.notificationManager.notify(this.notificationID, noti);
-					this.onNotificationUpdated(noti);
+					this.onNotificationUpdated(noti, "create");
 				} catch (Exception e) {
 					Log.e("MusicControls", "Error updating notification", e);
 				}
@@ -127,8 +132,9 @@ public class MusicControlsNotification {
 				Notification noti = this.notificationBuilder.build();
 
 				try {
+					this.notifyCount.incrementAndGet();
 					this.notificationManager.notify(this.notificationID, noti);
-					this.onNotificationUpdated(noti);
+					this.onNotificationUpdated(noti, isPlaying ? "play" : "pause");
 				} catch (Exception e) {
 					Log.e("MusicControls", "Error updating notification", e);
 				}
@@ -149,8 +155,9 @@ public class MusicControlsNotification {
 				Notification noti = this.notificationBuilder.build();
 
 				try {
+					this.notifyCount.incrementAndGet();
 					this.notificationManager.notify(this.notificationID, noti);
-					this.onNotificationUpdated(noti);
+					this.onNotificationUpdated(noti, "dismissable");
 				} catch (Exception e) {
 					Log.e("MusicControls", "Error updating notification", e);
 				}
@@ -205,6 +212,9 @@ public class MusicControlsNotification {
 		try {
 			URL url = new URL(strURL);
 			HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+			// kuackmedia (fgs-grace, N7): sin timeouts, la descarga bajo Doze trababa el lock de la notificación.
+			connection.setConnectTimeout(3000);
+			connection.setReadTimeout(5000);
 			connection.setDoInput(true);
 			connection.connect();
 			InputStream input = connection.getInputStream();
@@ -357,10 +367,24 @@ public class MusicControlsNotification {
 	}
 
 	public void destroy(){
-		this.notificationManager.cancel(this.notificationID);
-		this.onNotificationDestroyed();
+		// kuackmedia (fgs-grace, N6): el cancel viaja a onNotificationDestroyed, que lo corre después de soltar el
+		// FGS. Con el FGS en pie el cancel no hace nada sobre su notificación: la saca el REMOVE. Si entre el destroy
+		// y ese momento se publicó una notificación más nueva (destroy seguido de un create), no se cancela.
+		final int seen = this.notifyCount.get();
+		this.onNotificationDestroyed(this.notifyCount, seen, new Runnable() {
+			public void run() {
+				if (notifyCount.get() == seen) {
+					notificationManager.cancel(notificationID);
+				}
+			}
+		});
 	}
 
-	protected void onNotificationUpdated(Notification notification) {}
-	protected void onNotificationDestroyed() {}
+	// kuackmedia (fgs-grace): `source` = create | play | pause | dismissable.
+	protected void onNotificationUpdated(Notification notification, String source) {}
+	// kuackmedia (fgs-grace, N6): sin dueño del FGS se cancela en el acto. `notifyCount`/`seen`: el contador de
+	// notify y su valor al pedir el destroy.
+	protected void onNotificationDestroyed(AtomicInteger notifyCount, int seen, Runnable cancel) {
+		cancel.run();
+	}
 }

@@ -29,8 +29,44 @@ public class MusicControlsBroadcastReceiver extends BroadcastReceiver {
         }
     }
 
+    // kuackmedia (fgs-grace, N3): los PendingIntent de la notificación (30 s) y el receptor de botones de medios
+    // (10 s) traen la exención de Android para promover el FGS. Se abre la ventana antes de reenviar al JS y aunque
+    // cb sea null. onReceive corre en el main looper.
+    private void openCommandWindow(Intent intent) {
+        if (this.musicControls == null || intent == null || intent.getAction() == null) {
+            return;
+        }
+        switch (intent.getAction()) {
+            case "music-controls-play":
+                this.musicControls.onUserCommand("notif:play", true, 0);
+                break;
+            case "music-controls-next":
+                this.musicControls.onUserCommand("notif:next", true, 0);
+                break;
+            case "music-controls-previous":
+                this.musicControls.onUserCommand("notif:prev", true, 0);
+                break;
+            case "music-controls-media-button":
+                KeyEvent event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                if (event != null && event.getAction() == KeyEvent.ACTION_DOWN
+                        && MediaSessionCallback.isPlayCommandKey(event.getKeyCode())) {
+                    // Por este camino el JS trata PLAY_PAUSE como pausa (music-controls-media-button-play-pause):
+                    // abre la ventana y promueve sólo si ya estaba DEFERRED, nunca desde OFF.
+                    boolean promoteIfOff = event.getKeyCode() != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+                    this.musicControls.onUserCommand(
+                            "mediabutton:" + KeyEvent.keyCodeToString(event.getKeyCode()),
+                            promoteIfOff,
+                            event.getEventTime());
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
+        this.openCommandWindow(intent);
         if (this.cb != null) {
             String message = intent.getAction();
 

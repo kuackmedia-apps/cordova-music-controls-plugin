@@ -1,0 +1,1 @@
+package android.os; public class PowerManager { public static boolean ignoring = false; public static int calls = 0; public boolean isIgnoringBatteryOptimizations(String p){ calls++; return ignoring; } }

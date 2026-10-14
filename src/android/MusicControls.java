@@ -24,6 +24,9 @@ import android.content.IntentFilter;
 import android.content.Intent;
 import android.app.PendingIntent;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.content.BroadcastReceiver;
 import android.media.AudioManager;
 
@@ -33,10 +36,8 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-
-import android.app.ActivityManager;
-import android.app.ActivityManager.RunningServiceInfo;
-import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import android.view.View;
 import android.os.PowerManager;
@@ -60,6 +61,25 @@ public class MusicControls extends CordovaPlugin {
 	private MusicControlsServiceConnection mConnection;
 	private CallbackContext volumeCallbackContext;
 	private VolumeProviderCompat volumeProvider;
+
+	// kuackmedia (fgs-grace, N8): orden de los pedidos del JS. execute() corre en el hilo del puente y en el orden
+	// del JS; el create termina después en el thread pool (baja la carátula) y no puede pisar algo más nuevo.
+	private final AtomicLong mSeq = new AtomicLong();
+	private final Object playStateLock = new Object();
+	private long lastPlayingSeq = 0;
+	private boolean lastPublishedPlaying = false;
+	private long lastCreateSeq = 0;
+	// kuackmedia (fgs-grace, N4): generación de la página del WebView. onReset (main looper, el único que la escribe)
+	// la incrementa; execute() la captura en el hilo del puente. Lo que una página anterior termina después del
+	// reload (un create que bajaba la carátula) no toca la notificación, la sesión ni el FGS.
+	private volatile int pageGen = 0;
+	// Generación con la que sale el próximo publish (bajo playStateLock: la lee onNotificationUpdated, que corre
+	// adentro del notification.update* de quien tiene el lock).
+	private int publishGen = 0;
+	// Último estado publicado en la sesión, para la pausa del reload sin perder la posición (bajo playStateLock).
+	private long lastSessionPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+	private long lastSessionAt = 0;
+	private boolean lastSessionPlaying = false;
 
 	private void registerBroadcaster(MusicControlsBroadcastReceiver mMessageReceiver){
 		final Context context = this.cordova.getActivity().getApplicationContext();
@@ -105,21 +125,23 @@ public class MusicControls extends CordovaPlugin {
 		final Activity activity = this.cordova.getActivity();
 		final Context context = activity.getApplicationContext();
 
-		// Notification Killer
-		mConnection = new MusicControlsServiceConnection(activity);
+		// Notification Killer. kuackmedia (fgs-grace): mConnection es el dueño del FGS (máquina de estados).
+		mConnection = new MusicControlsServiceConnection(activity, this.notificationID);
 
 		this.cordovaActivity = activity;
 		this.notification = new MusicControlsNotification(this.cordovaActivity, this.notificationID) {
 			@Override
-			protected void onNotificationUpdated(Notification notification) {
-				mConnection.setNotification(notification, this.infos.isPlaying);
+			protected void onNotificationUpdated(Notification notification, String source) {
+				mConnection.publish(notification, this.infos.isPlaying, source, "create".equals(source), publishGen);
 			}
 
 			@Override
-			protected void onNotificationDestroyed() {
-				mConnection.setNotification(null, false);
+			protected void onNotificationDestroyed(AtomicInteger notifyCount, int seen, Runnable cancel) {
+				// N6: REMOVE y después el cancel, los dos en el main looper.
+				mConnection.destroyForeground("destroy", notifyCount, seen, cancel);
 			}
 		};
+		this.mMediaSessionCallback.setMusicControls(this);
 
 		this.mMessageReceiver = new MusicControlsBroadcastReceiver();
 		this.mMessageReceiver.setMusicControls(this);
@@ -176,7 +198,10 @@ public class MusicControls extends CordovaPlugin {
 		this.mediaSessionCompat.setActive(true);
 		setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED);
 
-		this.mediaSessionCompat.setCallback(this.mMediaSessionCallback);
+		// kuackmedia (fgs-grace, N3): los comandos llegan al main looper. Sin Handler llegaban al hilo donde corrió
+		// initialize (el del puente), que puede estar esperando el lock de la notificación de un create, y la ventana
+		// de exención se abría tarde.
+		this.mediaSessionCompat.setCallback(this.mMediaSessionCallback, new Handler(Looper.getMainLooper()));
 
 		// Register media (headset) button event receiver
 		try {
@@ -191,16 +216,16 @@ public class MusicControls extends CordovaPlugin {
 			e.printStackTrace();
 		}
 
-		Intent startServiceIntent = new Intent(activity,MusicControlsNotificationKiller.class);
-		startServiceIntent.putExtra("notificationID",this.notificationID);
-		activity.bindService(startServiceIntent, mConnection, Context.BIND_AUTO_CREATE);
+		// kuackmedia (fgs-grace, N4): el bind pasó a mConnection.ensureBound(), que se repite si el servicio se pierde.
+		mConnection.ensureBound();
 	}
 
 	@Override
 	public boolean execute(final String action, final JSONArray args, final CallbackContext callbackContext) throws JSONException {
 		final Context context=this.cordova.getActivity().getApplicationContext();
 		final Activity activity=this.cordova.getActivity();
-
+		final long seq = this.mSeq.incrementAndGet();
+		final int gen = this.pageGen;
 
 		if (action.equals("create")) {
 			final MusicControlsInfos infos = new MusicControlsInfos(args);
@@ -209,38 +234,58 @@ public class MusicControls extends CordovaPlugin {
 
 			this.cordova.getThreadPool().execute(new Runnable() {
 				public void run() {
+					try {
+						// track title
+						metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, infos.track);
+						// artists
+						metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, infos.artist);
+						//album
+						metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, infos.album);
 
+						//duration
+						metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, infos.duration);
 
-					// track title
-					metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, infos.track);
-					// artists
-					metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, infos.artist);
-					//album
-					metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, infos.album);
+						Bitmap art = getBitmapCover(infos.cover);
+						if(art != null){
+							metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+							metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, art);
 
-					//duration
-					metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, infos.duration);
+						}
 
-					Bitmap art = getBitmapCover(infos.cover);
-					if(art != null){
-						metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
-						metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, art);
+						synchronized (playStateLock) {
+							// kuackmedia (fgs-grace, N8): un create que tardó con la carátula no pisa algo más nuevo.
+							// N4: ni uno de la página anterior a un reload.
+							if (gen == pageGen && seq >= lastCreateSeq) {
+								lastCreateSeq = seq;
+								if (seq < lastPlayingSeq) {
+									// Después de este create el JS ya publicó otro estado: vale ése.
+									infos.isPlaying = lastPublishedPlaying;
+								} else {
+									lastPlayingSeq = seq;
+									lastPublishedPlaying = infos.isPlaying;
+								}
 
+								mediaSessionCompat.setMetadata(metadataBuilder.build());
+								if (infos.isCasting) {
+									mediaSessionCompat.setPlaybackToRemote(self.volumeProvider);
+								} else {
+									mediaSessionCompat.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+								}
+
+								if(infos.isPlaying)
+									setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, infos.elapsed);
+								else
+									setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, infos.elapsed);
+								publishGen = gen;
+								notification.updateNotification(infos);
+							}
+						}
+						// kuackmedia (fgs-grace, N5): el success es el estado del FGS (JSON), desde el main looper.
+						mConnection.answer(callbackContext);
+					} catch (Exception e) {
+						Log.e("MusicControls", "create falló", e);
+						callbackContext.error(String.valueOf(e));
 					}
-
-					mediaSessionCompat.setMetadata(metadataBuilder.build());
-					if (infos.isCasting) {
-						mediaSessionCompat.setPlaybackToRemote(self.volumeProvider);
-					} else {
-						mediaSessionCompat.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
-					}
-
-					if(infos.isPlaying)
-						setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, infos.elapsed);
-					else
-						setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, infos.elapsed);
-					notification.updateNotification(infos);
-					callbackContext.success("success");
 				}
 			});
 		}
@@ -248,18 +293,53 @@ public class MusicControls extends CordovaPlugin {
 			final JSONObject params = args.getJSONObject(0);
 			final boolean isPlaying = params.getBoolean("isPlaying");
 			final long position = params.getLong("position");
-			this.notification.updateIsPlaying(isPlaying);
-			if(isPlaying)
-				setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, position);
-			else
-				setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, position);
+			synchronized (this.playStateLock) {
+				// kuackmedia (fgs-grace, N4): lo de la página anterior a un reload no se aplica (sí se responde).
+				if (gen == this.pageGen) {
+					// N8: el último estado publicado, para un create más viejo que termine después.
+					this.lastPlayingSeq = seq;
+					this.lastPublishedPlaying = isPlaying;
+					this.publishGen = gen;
+					this.notification.updateIsPlaying(isPlaying);
+					if(isPlaying)
+						setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING, position);
+					else
+						setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, position);
+				}
+			}
 
-			callbackContext.success("success");
+			// kuackmedia (fgs-grace, N5): el success es el estado del FGS (JSON), desde el main looper y después de
+			// aplicar este pedido. Un binario viejo devolvía "success" y el JS lo ignora.
+			this.mConnection.answer(callbackContext);
+		}
+		else if (action.equals("getForegroundState")) {
+			// kuackmedia (fgs-grace, N5): para el Admin y el diagnóstico; no toca el estado.
+			this.mConnection.answer(callbackContext);
+		}
+		else if (action.equals("setForegroundPolicy")) {
+			// kuackmedia (fgs-grace, N1): [{ graceMs?, legacy? }]. graceMs 0 = bajar el FGS al instante en una pausa
+			// (sólo eso). legacy true = kill-switch por OTA: la promoción y la baja del plugin viejo (KUACKMEDIA.md).
+			final JSONObject opts = args.optJSONObject(0);
+			final boolean hasGrace = opts != null && opts.has("graceMs") && !opts.isNull("graceMs");
+			final boolean hasLegacy = opts != null && opts.has("legacy") && !opts.isNull("legacy");
+			final long graceMs = hasGrace ? opts.optLong("graceMs", -1L) : -1L;
+			if ((!hasGrace && !hasLegacy) || (hasGrace && graceMs < 0)) {
+				callbackContext.error("política inválida");
+			} else {
+				final int legacy = hasLegacy ? (opts.optBoolean("legacy", false) ? 1 : 0) : -1;
+				this.mConnection.setPolicy(graceMs, legacy, callbackContext);
+			}
 		}
 		else if (action.equals("updateDismissable")){
 			final JSONObject params = args.getJSONObject(0);
 			final boolean dismissable = params.getBoolean("dismissable");
-			this.notification.updateDismissable(dismissable);
+			synchronized (this.playStateLock) {
+				// kuackmedia (fgs-grace, N4): el publish lleva la generación de la página que lo pidió.
+				if (gen == this.pageGen) {
+					this.publishGen = gen;
+					this.notification.updateDismissable(dismissable);
+				}
+			}
 			callbackContext.success("success");
 		}
 		else if (action.equals("destroy")){
@@ -316,21 +396,10 @@ public class MusicControls extends CordovaPlugin {
 
 	@Override
 	public void onDestroy() {
-		final Activity activity = this.cordova.getActivity();
-		final Context context = activity.getApplicationContext();
-		final ActivityManager activityManager = (ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
-        final List<RunningServiceInfo> services = activityManager.getRunningServices(Integer.MAX_VALUE);
-
-        for (RunningServiceInfo runningServiceInfo : services) {
-            final String runningServiceClassName = runningServiceInfo.service.getClassName();
-            if (runningServiceClassName.equals("com.homerours.musiccontrols.MusicControlsNotificationKiller")){
-                Intent startServiceIntent = new Intent(context, MusicControlsNotificationKiller.class);
-                startServiceIntent.putExtra("notificationID", this.notificationID);
-                context.stopService(startServiceIntent);
-                activity.unbindService(this.mConnection);
-            }
-        }
-
+		// kuackmedia (fgs-grace, N4/N6): el destroy real (la Activity se destruye). Orden: gracia cancelada, FGS abajo
+		// con REMOVE y recién después el unbind (mConnection.shutdown). El servicio nunca se inicia con startService,
+		// así que ya no hace falta el stopService de antes.
+		this.mConnection.shutdown();
 		this.notification.destroy();
 		this.mMessageReceiver.stopListening();
 		this.unregisterMediaButtonEvent();
@@ -339,8 +408,99 @@ public class MusicControls extends CordovaPlugin {
 
 	@Override
 	public void onReset() {
-		onDestroy();
+		// kuackmedia (fgs-grace, N4 / R27): un reload del WebView ya no llama a onDestroy. Antes el unbind dejaba al
+		// app sin FGS hasta que muriera el proceso (el único bindService está en initialize, que no se repite). Se
+		// sueltan los callbacks de la página vieja y el reset cuenta como una pausa: bind, sesión y notificación
+		// quedan y el FGS espera la gracia. La generación nueva descarta lo que la página vieja tenga en vuelo (un
+		// create bajando la carátula). Si queda el FGS se publica la pausa (▶ y sesión PAUSED: el reload cortó el
+		// audio); si no, la notificación se borra como antes.
+		this.mMessageReceiver.stopListening();
+		this.mMediaSessionCallback.setCallback(null);
+		this.volumeCallbackContext = null;
+		this.pageGen++;
+		final int gen = this.pageGen;
+		final long seq = this.mSeq.incrementAndGet();
+		final MusicControlsNotification notification = this.notification;
+		this.mConnection.onWebViewReset(gen, new Runnable() {
+			public void run() {
+				publishResetPause(gen, seq, true);
+			}
+		}, new Runnable() {
+			public void run() {
+				notification.destroy();
+				publishResetPause(gen, seq, false);
+			}
+		});
 		super.onReset();
+	}
+
+	// kuackmedia (fgs-grace, N4): la pausa del reload. cordova-plugin-media y el motor de kuack-player sueltan sus
+	// reproductores en su onReset: la notificación pasa a ▶ (`notify`) y la sesión a PAUSED en la posición de ese
+	// momento. En el thread pool: updateIsPlaying espera el lock de la notificación, que un create puede tener tomado
+	// mientras baja la carátula, y el main looper no puede esperarlo. Lo descarta otro reload o lo que la página
+	// nueva ya haya publicado.
+	private void publishResetPause(final int gen, final long seq, final boolean notify) {
+		this.cordova.getThreadPool().execute(new Runnable() {
+			public void run() {
+				synchronized (playStateLock) {
+					if (gen != pageGen || seq < lastPlayingSeq || seq < lastCreateSeq) {
+						return;
+					}
+					lastPlayingSeq = seq;
+					lastPublishedPlaying = false;
+					if (notify) {
+						publishGen = gen;
+						notification.updateIsPlaying(false);
+					}
+					setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED, currentSessionPosition());
+				}
+			}
+		});
+	}
+
+	// Bajo playStateLock: la posición que muestra la sesión ahora (avanza si estaba en PLAYING).
+	private long currentSessionPosition() {
+		if (this.lastSessionPosition < 0) {
+			return PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+		}
+		if (!this.lastSessionPlaying) {
+			return this.lastSessionPosition;
+		}
+		return this.lastSessionPosition + Math.max(0L, SystemClock.elapsedRealtime() - this.lastSessionAt);
+	}
+
+	// kuackmedia (fgs-grace, N3): visibilidad de la Activity para la regla de exención. Al volver a verse, si el FGS
+	// quedó DEFERRED se promueve (reemplaza a la re-promoción del JS al volver, O7).
+	@Override
+	public void onStart() {
+		super.onStart();
+		if (this.mConnection != null) {
+			this.mConnection.onVisible();
+		}
+	}
+
+	@Override
+	public void onResume(boolean multitasking) {
+		super.onResume(multitasking);
+		if (this.mConnection != null) {
+			this.mConnection.onVisible();
+		}
+	}
+
+	@Override
+	public void onStop() {
+		super.onStop();
+		if (this.mConnection != null) {
+			this.mConnection.onHidden();
+		}
+	}
+
+	// kuackmedia (fgs-grace, N3): MediaSessionCallback y MusicControlsBroadcastReceiver lo llaman con cada comando
+	// del usuario, antes de reenviarlo al JS.
+	void onUserCommand(String trigger, boolean promoteIfOff, long eventUptime) {
+		if (this.mConnection != null) {
+			this.mConnection.onUserCommand(trigger, promoteIfOff, eventUptime);
+		}
 	}
 	private void setMediaPlaybackState(int state) {
 		this.setMediaPlaybackState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN);
@@ -348,6 +508,10 @@ public class MusicControls extends CordovaPlugin {
 	}
 	private void setMediaPlaybackState(int state, Long position) {
 
+		// kuackmedia (fgs-grace, N4): para la pausa del reload (currentSessionPosition).
+		this.lastSessionPosition = position != null ? position : PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+		this.lastSessionAt = SystemClock.elapsedRealtime();
+		this.lastSessionPlaying = state == PlaybackStateCompat.STATE_PLAYING;
 		PlaybackStateCompat.Builder playbackstateBuilder = new PlaybackStateCompat.Builder();
 		if( state == PlaybackStateCompat.STATE_PLAYING ) {
 			playbackstateBuilder.setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_PAUSE | PlaybackStateCompat.ACTION_SKIP_TO_NEXT | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
@@ -412,6 +576,9 @@ public class MusicControls extends CordovaPlugin {
 		try {
 			URL url = new URL(strURL);
 			HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+			// kuackmedia (fgs-grace, N7): sin timeouts, una descarga colgada bajo Doze demoraba el create.
+			connection.setConnectTimeout(3000);
+			connection.setReadTimeout(5000);
 			connection.setDoInput(true);
 			connection.connect();
 			InputStream input = connection.getInputStream();
