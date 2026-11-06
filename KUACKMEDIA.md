@@ -4,10 +4,14 @@ Fork de [ghenry22/cordova-plugin-music-controls2](https://github.com/ghenry22/co
 notificación de reproducción, lockscreen y `MediaSession` del app, y en Android además **el único servicio en primer
 plano (FGS) del app** (`MusicControlsNotificationKiller`, tipo `mediaPlayback`).
 
-**`master` es lo publicado**: las 8 apps de producción lo instalan con
-`spec="github:kuackmedia-apps/cordova-music-controls-plugin"` (sin versión) desde los `config-app*.xml` de
-`_common/configTemplates`. Un push a `master` llega al próximo `initApp.sh` de **todas** las apps. Los cambios se prueban
-antes en una rama y, si hace falta, con un tag fijado en un solo template.
+**Lo publicado es el commit fijado en los `config-app*.xml`** de `_common/configTemplates` del repo de las apps, no
+la punta de una rama: un push a este repo no llega a ningún binario hasta que se mueve el pin, y mover el pin es un diff
+que se revisa. Desde A18 (RFP de Claro, branch `Plugins-A18` de las apps, 06/11/2026) todas las variantes, demos
+incluidas, fijan `4f099c2` de la rama `a18`: `61db36c` (el tag `3.0.6-fgs.1`, rama `fgs-grace`) más
+`androidx.legacy:legacy-support-v4:1.0.0` en lugar de `com.android.support:support-v4:28.0.0`, que es lo que hasta
+entonces generaba en el build `cordova-plugin-androidx-adapter` (las apps dejaron de instalarlo). Los binarios
+publicados de las marcas traen todavía `master`. Los cambios se prueban antes con `config-app-local.xml` (path local
+del checkout).
 
 ## `fgs-grace`: que el app no pierda el FGS en segundo plano (B-07, binario de Claro del 19/10/2026)
 
@@ -215,15 +219,17 @@ mantiene y la notificación pasa a ▶) y 11 (batería restringida).
 
 ## Publicación
 
-1. Rama `fgs-grace` desde `master` (este worktree: `cordova-music-controls-plugin-fgs`). Push y tag propuesto
-   **`v2.2.0-b07`** (los tags previos del fork son `2.1.x`).
-2. Fijarlo **sólo** en `_common/configTemplates/config-app-claro.xml:335`:
-   `spec="github:kuackmedia-apps/cordova-music-controls-plugin#v2.2.0-b07"`. Lo hace el usuario.
-   `config-app.xml` y los demás templates **no se tocan**: `master` sin tag es lo que recibe cada `initApp.sh` de las
-   8 apps.
-3. Builds locales: `config-app-local.xml` apunta a `/Users/mac/WebstormProjects/cordova-music-controls-plugin` (el
-   checkout principal): poner ahí la rama `fgs-grace`, o cambiar el path al del worktree sólo para ese build.
-4. Llevarlo a `master` recién con la QA de §6 en verde: desde ese momento lo reciben todas las apps.
+Historia: `fgs-grace` se publicó con el tag `3.0.6-fgs.1` (`61db36c`), primero sólo en `config-app-claro.xml` y desde la
+rama `Plugins-Claro-Marcas` de las apps (23/10/2026) en `config-app.xml` y sus variantes. Desde A18 todas las variantes
+fijan `4f099c2` (rama `a18`, arriba).
+
+Para publicar un cambio:
+
+1. Rama desde el commit fijado; `config-app-local.xml` apunta a `/Users/mac/WebstormProjects/cordova-music-controls-plugin`
+   (el checkout principal) para probarlo en un build local.
+2. Push de la rama y SHA nuevo en las variantes de `config-app*.xml` que llevan el plugin;
+   `node _common/tools/plugin-pins/check-pins.js --remote` tiene que pasar.
+3. `master` queda como referencia: moverlo no cambia ningún binario.
 
 ## Riesgos y pendientes
 
