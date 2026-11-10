@@ -7,11 +7,35 @@ plano (FGS) del app** (`MusicControlsNotificationKiller`, tipo `mediaPlayback`).
 **Lo publicado es el commit fijado en los `config-app*.xml`** de `_common/configTemplates` del repo de las apps, no
 la punta de una rama: un push a este repo no llega a ningún binario hasta que se mueve el pin, y mover el pin es un diff
 que se revisa. Desde A18 (RFP de Claro, branch `Plugins-A18` de las apps, 06/11/2026) todas las variantes, demos
-incluidas, fijan `4f099c2` de la rama `a18`: `61db36c` (el tag `3.0.6-fgs.1`, rama `fgs-grace`) más
+incluidas, fijaron `876f635` (rama `a18`, después `master`): `61db36c` (el tag `3.0.6-fgs.1`, rama `fgs-grace`) más
 `androidx.legacy:legacy-support-v4:1.0.0` en lugar de `com.android.support:support-v4:28.0.0`, que es lo que hasta
-entonces generaba en el build `cordova-plugin-androidx-adapter` (las apps dejaron de instalarlo). Los binarios
-publicados de las marcas traen todavía `master`. Los cambios se prueban antes con `config-app-local.xml` (path local
+entonces generaba en el build `cordova-plugin-androidx-adapter` (las apps dejaron de instalarlo), y su documentación.
+Desde el 10/11/2026 fijan la punta de `station-acciones` (§ abajo): `876f635` más las acciones de la sesión de medios
+según el último `create`. Los binarios publicados de las marcas traen todavía un `master` anterior a `fgs-grace`. Los cambios se prueban antes con `config-app-local.xml` (path local
 del checkout).
+
+## `station-acciones`: los controles de Android sólo ofrecen lo que el app permite (TG-3389, 10/11/2026)
+
+En Android 13+ los controles de la persiana y de la pantalla bloqueada se dibujan con las **acciones de la sesión de
+medios** (`PlaybackStateCompat.setActions`), no con los botones de la notificación. El plugin publicaba siempre
+`SKIP_TO_NEXT`, `SKIP_TO_PREVIOUS` y `SEEK_TO`, así que en las estaciones (Station) se veían anterior, siguiente y la
+barra aunque el JS descarta esos comandos. `hasPrev`/`hasNext` sólo quitaban los botones de la notificación clásica
+(Android 12 o anterior).
+
+- `MusicControls.java`: las acciones salen del último `create` (`sessionActions`): siguiente con `hasNext`, anterior
+  con `hasPrev` y `SEEK_TO` con `hasScrubbing`. Siempre van play/pausa, `PLAY_FROM_MEDIA_ID` y `PLAY_FROM_SEARCH`.
+  Antes del primer `create`, todas, como antes.
+- `MusicControlsInfos.java`: `hasScrubbing` con `optBoolean(…, true)`: un JS que no lo manda conserva la barra.
+- `www/MusicControls.js`: `hasScrubbing` ya no tiene default (era `false`). Si lo tuviera, un remoto anterior que no lo
+  manda en Android dejaría sin barra a todo el contenido. En iOS ausente ya valía `NO` (`MusicControlsInfo.m`), así
+  que no cambia.
+- El JS de las apps manda `hasScrubbing: false` en Android con la reproducción restringida (estaciones) y en los
+  controles del jingle (`MusicControls.js` de `_common`, misma regla que iOS).
+- Cambio de comportamiento fuera de Station: en Android 13+ desaparece «anterior» cuando el JS manda `hasPrev: false`
+  (el primer tema de una cola) y «siguiente» con `hasNext: false`, como ya pasaba en la notificación de Android 12 o
+  anterior.
+- iOS no cambia: ya habilitaba `nextTrackCommand`/`previousTrackCommand` según `hasNext`/`hasPrev` y la barra según
+  `hasScrubbing`.
 
 ## `fgs-grace`: que el app no pierda el FGS en segundo plano (B-07, binario de Claro del 19/10/2026)
 

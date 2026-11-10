@@ -265,6 +265,10 @@ public class MusicControls extends CordovaPlugin {
 									lastPublishedPlaying = infos.isPlaying;
 								}
 
+								// station-acciones: antes de publicar el estado, que arma las acciones con esto
+								sessionHasNext = infos.hasNext;
+								sessionHasPrev = infos.hasPrev;
+								sessionHasScrubbing = infos.hasScrubbing;
 								mediaSessionCompat.setMetadata(metadataBuilder.build());
 								if (infos.isCasting) {
 									mediaSessionCompat.setPlaybackToRemote(self.volumeProvider);
@@ -502,6 +506,31 @@ public class MusicControls extends CordovaPlugin {
 			this.mConnection.onUserCommand(trigger, promoteIfOff, eventUptime);
 		}
 	}
+	// kuackmedia (station-acciones): las acciones de la sesión de medios salen del último create. En Android 13+ los
+	// controles de la persiana y de la pantalla bloqueada se dibujan con estas acciones, no con los botones de la
+	// notificación: publicar siempre SKIP_TO_NEXT/PREVIOUS y SEEK_TO mostraba anterior, siguiente y la barra en las
+	// estaciones (Station), donde el JS los descarta. Hasta el primer create, todas (lo de siempre).
+	private volatile boolean sessionHasNext = true;
+	private volatile boolean sessionHasPrev = true;
+	private volatile boolean sessionHasScrubbing = true;
+
+	private long sessionActions(int state) {
+		long actions = PlaybackStateCompat.ACTION_PLAY_PAUSE |
+				(state == PlaybackStateCompat.STATE_PLAYING ? PlaybackStateCompat.ACTION_PAUSE : PlaybackStateCompat.ACTION_PLAY) |
+				PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+				PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH;
+		if (this.sessionHasNext) {
+			actions |= PlaybackStateCompat.ACTION_SKIP_TO_NEXT;
+		}
+		if (this.sessionHasPrev) {
+			actions |= PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+		}
+		if (this.sessionHasScrubbing) {
+			actions |= PlaybackStateCompat.ACTION_SEEK_TO;
+		}
+		return actions;
+	}
+
 	private void setMediaPlaybackState(int state) {
 		this.setMediaPlaybackState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN);
 		//this.setMediaPlaybackState(state, 20000L);
@@ -513,17 +542,10 @@ public class MusicControls extends CordovaPlugin {
 		this.lastSessionAt = SystemClock.elapsedRealtime();
 		this.lastSessionPlaying = state == PlaybackStateCompat.STATE_PLAYING;
 		PlaybackStateCompat.Builder playbackstateBuilder = new PlaybackStateCompat.Builder();
+		playbackstateBuilder.setActions(sessionActions(state));
 		if( state == PlaybackStateCompat.STATE_PLAYING ) {
-			playbackstateBuilder.setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_PAUSE | PlaybackStateCompat.ACTION_SKIP_TO_NEXT | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-					PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
-					PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
-					PlaybackStateCompat.ACTION_SEEK_TO);
 			playbackstateBuilder.setState(state, position, 1.0f);
 		} else {
-			playbackstateBuilder.setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_SKIP_TO_NEXT | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-					PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
-					PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
-					PlaybackStateCompat.ACTION_SEEK_TO);
 			playbackstateBuilder.setState(state, position, 0);
 		}
 		if (this.mediaSessionCompat.isActive()) {

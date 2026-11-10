@@ -13,6 +13,8 @@ public class MusicControlsInfos{
 	public boolean hasPrev;
 	public boolean hasNext;
 	public boolean hasClose;
+	// kuackmedia (station-acciones): la barra de la sesión de medios (SEEK_TO). true si el JS no lo manda.
+	public boolean hasScrubbing;
 	public boolean dismissable;
 	public String playIcon;
 	public String pauseIcon;
@@ -35,6 +37,7 @@ public class MusicControlsInfos{
 		this.hasPrev = params.getBoolean("hasPrev");
 		this.hasNext = params.getBoolean("hasNext");
 		this.hasClose = params.getBoolean("hasClose");
+		this.hasScrubbing = params.optBoolean("hasScrubbing", true);
 		this.dismissable = params.getBoolean("dismissable");
 		this.playIcon = params.getString("playIcon");
 		this.pauseIcon = params.getString("pauseIcon");
